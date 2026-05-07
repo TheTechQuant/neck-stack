@@ -8,7 +8,6 @@ const postgresUser = "__POSTGRES_USER__";
 const defaultPostgresPassword = "__POSTGRES_PASSWORD_DEFAULT__";
 const defaultRedisPassword = "__REDIS_PASSWORD_DEFAULT__";
 const domain = process.env.DOMAIN || "__DOMAIN__";
-const apiDomain = process.env.API_DOMAIN || "__API_DOMAIN__";
 const caddyAcmeEmail = process.env.CADDY_ACME_EMAIL || "__CADDY_ACME_EMAIL__";
 const encoreDashboardDomain = process.env.ENCORE_DASHBOARD_DOMAIN || "__ENCORE_DASHBOARD_DOMAIN__";
 const encoreDashboardUser = process.env.ENCORE_DASHBOARD_USER || "__ENCORE_DASHBOARD_USER__";
@@ -67,7 +66,7 @@ function renderInfraConfig() {
       env_name: "production",
       env_type: "production",
       cloud: "self-hosted",
-      base_url: `https://${apiDomain}`,
+      base_url: `https://${domain}/api`,
     },
     graceful_shutdown: {
       total: 30,
@@ -177,7 +176,6 @@ function renderCompose() {
     restart: unless-stopped
     environment:
       DOMAIN: \${DOMAIN:-${domain}}
-      API_DOMAIN: \${API_DOMAIN:-${apiDomain}}
       CADDY_ACME_EMAIL: \${CADDY_ACME_EMAIL:-${caddyAcmeEmail}}
       ENCORE_DASHBOARD_DOMAIN: \${ENCORE_DASHBOARD_DOMAIN:-${encoreDashboardDomain}}
       ENCORE_DASHBOARD_USER: \${ENCORE_DASHBOARD_USER:-${encoreDashboardUser}}
@@ -200,7 +198,8 @@ function renderCompose() {
     platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
     restart: unless-stopped
     environment:
-      NUXT_PUBLIC_API_BASE_URL: https://\${API_DOMAIN:-${apiDomain}}
+      NUXT_PUBLIC_API_BASE_URL: ${composeEnv("NUXT_PUBLIC_API_BASE_URL", "/api")}
+      NUXT_API_INTERNAL_BASE_URL: \${NUXT_API_INTERNAL_BASE_URL:-http://backend:8080}
       NUXT_PUBLIC_ENCORE_TOOLBAR: \${NUXT_PUBLIC_ENCORE_TOOLBAR:-true}
       NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME: \${NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME:-production}
       PORT: 3000
@@ -330,7 +329,6 @@ function komodoEnvLines() {
   const lines = [
     "APP_ENV = production",
     `DOMAIN = ${domain}`,
-    `API_DOMAIN = ${apiDomain}`,
     `CADDY_ACME_EMAIL = ${caddyAcmeEmail}`,
     `ENCORE_DASHBOARD_DOMAIN = ${encoreDashboardDomain}`,
     `ENCORE_DASHBOARD_USER = ${encoreDashboardUser}`,
@@ -338,6 +336,8 @@ function komodoEnvLines() {
     `ENCORE_DASHBOARD_URL = ${encoreDashboardUrl}`,
     "NUXT_PUBLIC_ENCORE_TOOLBAR = true",
     "NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME = production",
+    "NUXT_PUBLIC_API_BASE_URL = /api",
+    "NUXT_API_INTERNAL_BASE_URL = http://backend:8080",
     `PROD_PLATFORM = ${prodPlatform}`,
     "",
   ];

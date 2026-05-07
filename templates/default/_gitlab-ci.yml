@@ -86,7 +86,7 @@ build-images:
       export HAS_DATABASES
     - pnpm api:gen
     - cd backend && encore build docker --os "$PROD_OS" --arch "$PROD_ARCH" --config ../deploy/encore/infra.prod.json "$BACKEND_IMAGE" && cd ..
-    - docker build --platform "$PROD_PLATFORM" -f frontend/Dockerfile --build-arg NUXT_PUBLIC_API_BASE_URL="https://__API_DOMAIN__" --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR="${NUXT_PUBLIC_ENCORE_TOOLBAR:-true}" --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME="${NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME:-production}" --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR_SRC="${NUXT_PUBLIC_ENCORE_TOOLBAR_SRC:-}" -t "$FRONTEND_IMAGE" .
+    - docker build --platform "$PROD_PLATFORM" -f frontend/Dockerfile --build-arg NUXT_PUBLIC_API_BASE_URL="/api" --build-arg NUXT_API_INTERNAL_BASE_URL="http://backend:8080" --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR="${NUXT_PUBLIC_ENCORE_TOOLBAR:-true}" --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME="${NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME:-production}" --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR_SRC="${NUXT_PUBLIC_ENCORE_TOOLBAR_SRC:-}" -t "$FRONTEND_IMAGE" .
     - |
       if [ "$HAS_DATABASES" = "true" ]; then
         docker build --platform "$PROD_PLATFORM" -f deploy/migrations/Dockerfile -t "$MIGRATIONS_IMAGE" .

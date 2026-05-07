@@ -1,6 +1,5 @@
 APP_ENV=production
 DOMAIN=__DOMAIN__
-API_DOMAIN=__API_DOMAIN__
 CADDY_ACME_EMAIL=__CADDY_ACME_EMAIL__
 
 # Caddy protects this host with HTTP Basic Auth and redirects to Encore Cloud.
@@ -10,11 +9,12 @@ ENCORE_DASHBOARD_PASSWORD=__ENCORE_DASHBOARD_PASSWORD_DEFAULT__
 ENCORE_DASHBOARD_PASSWORD_HASH='__ENCORE_DASHBOARD_PASSWORD_HASH_DEFAULT__'
 ENCORE_DASHBOARD_URL=__ENCORE_DASHBOARD_URL__
 
-NUXT_PUBLIC_API_BASE_URL=https://__API_DOMAIN__
+NUXT_PUBLIC_API_BASE_URL=/api
+NUXT_API_INTERNAL_BASE_URL=http://backend:8080
 PUBLIC_WEB_URL=https://__DOMAIN__
 NUXT_PUBLIC_ENCORE_TOOLBAR=true
 NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME=production
-# NUXT_PUBLIC_ENCORE_TOOLBAR_SRC=https://__API_DOMAIN__/encore-toolbar.js
+# NUXT_PUBLIC_ENCORE_TOOLBAR_SRC=https://encore.dev/encore-toolbar.js?appId=__APP_ID__&envName=production
 
 # Optional SQL/cache settings. They matter only after Encore metadata reports SQLDatabase/CacheCluster declarations.
 # POSTGRES_USER=__POSTGRES_USER__

@@ -42,6 +42,8 @@ CronJobs become scheduled Komodo actions that run `docker compose run --rm cron-
 
 ## Runtime Services
 
+Caddy serves the Nuxt app on `DOMAIN` and proxies `/api/*` to the private Encore backend after stripping the `/api` prefix. The public frontend client uses `/api`; Nuxt server-side code can use `NUXT_API_INTERNAL_BASE_URL=http://backend:8080` inside the Compose network.
+
 Services are provisioned only when used:
 
 - No `SQLDatabase`: no Postgres, no migration image, no migration action.

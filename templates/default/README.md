@@ -58,6 +58,7 @@ pnpm deploy:komodo
 
 Production is driven by Encore metadata:
 
+- Caddy serves Nuxt on `DOMAIN` and proxies `/api/*` to Encore, so the frontend and backend share one public host.
 - `SQLDatabase` declarations add private Postgres, migration image/action, and `encoredotdev/postgres`.
 - `CacheCluster` declarations add private Redis.
 - `Topic` and `Subscription` declarations add NSQ.

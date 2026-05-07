@@ -41,7 +41,6 @@ For a mostly configured run:
 ```bash
 pnpm create neck-stack my-app \
   --domain app.example.com \
-  --api-domain api.example.com \
   --dashboard-domain encore.app.example.com \
   --caddy-email ops@example.com \
   --dashboard-user ops \
@@ -55,7 +54,7 @@ By default the initializer registers the existing backend template with Encore C
 
 ## Production Shape
 
-The generated app starts with only Caddy, frontend, and backend services. Postgres, Redis, NSQ, migration actions, and cron runner actions are generated only when Encore metadata reports matching backend resources. Object storage is deliberately external: use S3, Cloudflare R2, GCS, or another managed storage provider instead of adding MinIO to the default Komodo stack.
+The generated app starts with only Caddy, frontend, and backend services. Caddy serves the Nuxt app on `DOMAIN` and proxies `/api/*` to Encore, so there is no separate API domain to configure. Postgres, Redis, NSQ, migration actions, and cron runner actions are generated only when Encore metadata reports matching backend resources. Object storage is deliberately external: use S3, Cloudflare R2, GCS, or another managed storage provider instead of adding MinIO to the default Komodo stack.
 
 Encore SQL migrations are run with `golang-migrate/migrate` after images are built and before the stack restarts. Postgres and Redis stay private to the Compose network. Generated passwords let the first stack boot without manual secret work, and every generated password can be overridden in Komodo or server `.env` before volumes are initialized.
 

@@ -20,7 +20,6 @@ function createProgram() {
     .argument("[app-name]", "target directory or app name")
     .option("--name <name>", "package/app display name when target path differs")
     .option("--domain <domain>", "public frontend domain")
-    .option("--api-domain <domain>", "public backend API domain")
     .option("--dashboard-domain <domain>", "basic-auth protected Encore dashboard redirect domain")
     .option("--dashboard-user <user>", "basic-auth user for Encore dashboard redirect")
     .option("--dashboard-url <url>", "target URL for the protected Encore dashboard redirect")
@@ -244,7 +243,6 @@ async function main() {
     section("Domains");
   }
   const domain = await promptValue("Frontend domain", options.domain || defaultDomain, yes);
-  const apiDomain = await promptValue("API domain", options.apiDomain || `api.${domain}`, yes);
   const dashboardDomain = await promptValue("Encore dashboard domain", options.dashboardDomain || `encore.${domain}`, yes);
   const caddyAcmeEmail = await promptValue("Caddy ACME email", options.caddyEmail || `admin@${domain}`, yes);
   const dashboardUser = await promptValue("Encore dashboard user", options.dashboardUser || "admin", yes);
@@ -300,7 +298,6 @@ async function main() {
     ENCORE_DASHBOARD_URL: dashboardUrl,
     CADDY_ACME_EMAIL: caddyAcmeEmail,
     DOMAIN: domain,
-    API_DOMAIN: apiDomain,
     REGISTRY: registry.replace(/\/+$/g, ""),
     PROD_PLATFORM: prodPlatform,
     GITLAB_PROJECT: gitlabProject,

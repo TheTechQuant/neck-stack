@@ -4,12 +4,18 @@
 
 {$DOMAIN} {
 	encode zstd gzip
-	reverse_proxy frontend:3000
-}
 
-{$API_DOMAIN} {
-	encode zstd gzip
-	reverse_proxy backend:8080
+	handle_path /api/* {
+		reverse_proxy backend:8080
+	}
+
+	handle /__encore/* {
+		reverse_proxy backend:8080
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
 }
 
 {$ENCORE_DASHBOARD_DOMAIN} {

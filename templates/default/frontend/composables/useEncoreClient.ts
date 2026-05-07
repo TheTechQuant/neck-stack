@@ -1,6 +1,20 @@
 import Client from "~/lib/encore-client.gen";
 
-export function useEncoreClient() {
+function resolveApiBaseUrl() {
   const config = useRuntimeConfig();
-  return new Client(config.public.apiBaseUrl);
+  const publicBaseUrl = String(config.public.apiBaseUrl || "/api");
+
+  if (import.meta.server) {
+    return String(config.apiInternalBaseUrl || publicBaseUrl);
+  }
+
+  if (publicBaseUrl.startsWith("/") && typeof window !== "undefined") {
+    return `${window.location.origin}${publicBaseUrl}`;
+  }
+
+  return publicBaseUrl;
+}
+
+export function useEncoreClient() {
+  return new Client(resolveApiBaseUrl());
 }

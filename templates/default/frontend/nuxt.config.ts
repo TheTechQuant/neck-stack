@@ -24,8 +24,11 @@ export default defineNuxtConfig({
       : {},
   },
   runtimeConfig: {
+    apiInternalBaseUrl: process.env.NUXT_API_INTERNAL_BASE_URL
+      || (process.env.NODE_ENV === "production" ? "http://backend:8080" : "http://localhost:4000"),
     public: {
-      apiBaseUrl: process.env.NUXT_PUBLIC_API_BASE_URL || "http://localhost:4000",
+      apiBaseUrl: process.env.NUXT_PUBLIC_API_BASE_URL
+        || (process.env.NODE_ENV === "production" ? "/api" : "http://localhost:4000"),
     },
   },
   nitro: {
