@@ -50,8 +50,6 @@ pnpm create neck-stack my-app \
   --komodo-server server-prod
 ```
 
-For local package development, run `pnpm run create -- <args>` from this repository.
-
 By default the initializer registers the existing backend template with Encore Cloud using `encore app init <app-id>`, not `encore app create`, so it links the repo without scaffolding over the backend. Use `--no-encore-platform` for offline/local-only scaffolds. CI can authenticate with a masked `ENCORE_AUTH_KEY`.
 
 ## Production Shape
