@@ -24,20 +24,19 @@ The result is an opinionated setup in which things that you can get wrong are mi
 
 ## Quick Start
 
-From this checkout:
+Use the published package:
 
 ```bash
-pnpm install
-pnpm run create -- my-app --yes
+pnpm create neck-stack my-app
 ```
 
 Omit the app name to launch the interactive wizard:
 
 ```bash
-pnpm run create
+pnpm create neck-stack
 ```
 
-Or after publishing:
+For a mostly configured run:
 
 ```bash
 pnpm create neck-stack my-app \
@@ -50,6 +49,8 @@ pnpm create neck-stack my-app \
   --registry registry.gitlab.com/my-group/my-app \
   --komodo-server server-prod
 ```
+
+For local package development, run `pnpm run create -- <args>` from this repository.
 
 By default the initializer registers the existing backend template with Encore Cloud using `encore app init <app-id>`, not `encore app create`, so it links the repo without scaffolding over the backend. Use `--no-encore-platform` for offline/local-only scaffolds. CI can authenticate with a masked `ENCORE_AUTH_KEY`.
 

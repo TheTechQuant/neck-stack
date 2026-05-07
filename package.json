@@ -1,20 +1,25 @@
 {
   "name": "create-neck-stack",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Create NECK stack apps: Nuxt.js, Encore.ts, Caddy, and Komodo.",
   "type": "module",
   "bin": {
-    "create-neck-stack": "./bin/create-neck-stack.mjs"
+    "create-neck-stack": "bin/create-neck-stack.mjs"
   },
   "files": [
     "bin",
     "templates",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
     "create": "node ./bin/create-neck-stack.mjs",
     "check": "node --check ./bin/create-neck-stack.mjs && node --check ./templates/default/scripts/generate-encore-config.mjs && node --check ./templates/default/scripts/generate-client.mjs && node --check ./templates/default/scripts/generate-openapi.mjs && node --check ./templates/default/scripts/watch-client.mjs && node --check ./templates/default/scripts/run-migrations.mjs && node --check ./templates/default/scripts/install.mjs && node --check ./templates/default/scripts/deploy-komodo.mjs && node --check ./templates/default/scripts/lib/encore-resources.mjs && node -e \"const fs=require('node:fs'); for (const f of ['templates/default/_vscode/launch.json','templates/default/_vscode/tasks.json','templates/default/_vscode/mcp.json','templates/default/_vscode/settings.json','templates/default/_vscode/extensions.json','templates/default/_zed/settings.json','templates/default/_zed/debug.json','templates/default/_zed/tasks.json']) JSON.parse(fs.readFileSync(f,'utf8'))\"",
-    "smoke": "rm -rf /tmp/neck-smoke && node ./bin/create-neck-stack.mjs /tmp/neck-smoke --yes --no-install --no-git --no-encore-platform"
+    "smoke": "rm -rf /tmp/neck-smoke && node ./bin/create-neck-stack.mjs /tmp/neck-smoke --yes --no-install --no-git --no-encore-platform",
+    "prepublishOnly": "pnpm check"
   },
   "keywords": [
     "nuxt",
