@@ -28,6 +28,7 @@ function createProgram() {
     .option("--caddy-email <email>", "ACME email for Caddy certificates")
     .option("--gitlab-project <path>", "GitLab project path, e.g. group/app")
     .option("--registry <registry>", "container image registry/repository")
+    .option("--prod-platform <platform>", "production image target platform, e.g. linux/amd64 or linux/arm64")
     .option("--komodo-server <name>", "Komodo server resource name")
     .option("--komodo-deploy-webhook-url <url>", "optional Komodo stack deploy webhook written to generated .env")
     .option("--komodo-migrate-webhook-url <url>", "optional Komodo migration webhook written to generated .env")
@@ -59,6 +60,25 @@ function slugify(input) {
 function postgresIdent(input) {
   const ident = input.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
   return ident || "neck_app";
+}
+
+function normalizeProdPlatform(input) {
+  const value = String(input || "linux/amd64").trim().toLowerCase();
+  const aliases = {
+    amd64: "linux/amd64",
+    x64: "linux/amd64",
+    x86_64: "linux/amd64",
+    arm: "linux/arm64",
+    arm64: "linux/arm64",
+    aarch64: "linux/arm64",
+  };
+  const platform = aliases[value] || value;
+
+  if (!/^linux\/(amd64|arm64)$/.test(platform)) {
+    throw new Error(`Invalid production platform ${JSON.stringify(input)}. Use linux/amd64, linux/arm64, amd64, or arm64.`);
+  }
+
+  return platform;
 }
 
 function secretToken() {
@@ -235,6 +255,8 @@ async function main() {
   }
   const gitlabProject = await promptValue("GitLab project path", options.gitlabProject || `your-group/${appSlug}`, yes);
   const registry = await promptValue("Image registry/repository", options.registry || `registry.gitlab.com/${gitlabProject}`, yes);
+  const prodPlatformInput = await promptValue("Production image platform", options.prodPlatform || "linux/amd64", yes);
+  const prodPlatform = normalizeProdPlatform(prodPlatformInput);
   const komodoServer = await promptValue("Komodo server", options.komodoServer || "server-prod", yes);
   const komodoDeployWebhookUrl = await promptOptional(
     "Komodo deploy webhook URL",
@@ -280,6 +302,7 @@ async function main() {
     DOMAIN: domain,
     API_DOMAIN: apiDomain,
     REGISTRY: registry.replace(/\/+$/g, ""),
+    PROD_PLATFORM: prodPlatform,
     GITLAB_PROJECT: gitlabProject,
     GIT_PROVIDER: gitProvider,
     GIT_ACCOUNT: gitAccount,

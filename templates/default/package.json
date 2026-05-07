@@ -24,8 +24,9 @@
     "mcp:encore:start": "encore mcp start --app=__APP_ID__",
     "deploy:komodo": "zx scripts/deploy-komodo.mjs",
     "migrate:prod": "node scripts/run-migrations.mjs",
-    "docker:frontend": "pnpm api:gen && docker build -f frontend/Dockerfile -t ${FRONTEND_IMAGE:-__REGISTRY__/frontend:local} .",
-    "docker:migrations": "docker build -f deploy/migrations/Dockerfile -t ${MIGRATIONS_IMAGE:-__REGISTRY__/migrations:local} ."
+    "docker:backend": "zx scripts/build-backend-image.mjs",
+    "docker:frontend": "pnpm api:gen && docker build --platform ${PROD_PLATFORM:-__PROD_PLATFORM__} -f frontend/Dockerfile -t ${FRONTEND_IMAGE:-__REGISTRY__/frontend:local} .",
+    "docker:migrations": "docker build --platform ${PROD_PLATFORM:-__PROD_PLATFORM__} -f deploy/migrations/Dockerfile -t ${MIGRATIONS_IMAGE:-__REGISTRY__/migrations:local} ."
   },
   "devDependencies": {
     "chalk": "^5.6.2",

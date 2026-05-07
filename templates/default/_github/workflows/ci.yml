@@ -11,6 +11,7 @@ env:
   BACKEND_IMAGE: ${{ vars.REGISTRY_IMAGE || format('ghcr.io/{0}', github.repository) }}/backend:${{ github.sha }}
   FRONTEND_IMAGE: ${{ vars.REGISTRY_IMAGE || format('ghcr.io/{0}', github.repository) }}/frontend:${{ github.sha }}
   MIGRATIONS_IMAGE: ${{ vars.REGISTRY_IMAGE || format('ghcr.io/{0}', github.repository) }}/migrations:${{ github.sha }}
+  PROD_PLATFORM: ${{ vars.PROD_PLATFORM || '__PROD_PLATFORM__' }}
 
 jobs:
   validate:
@@ -71,6 +72,28 @@ jobs:
           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME || github.actor }}
           REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD || github.token }}
         run: echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY_HOST" -u "$REGISTRY_USERNAME" --password-stdin
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64,amd64
+      - name: Resolve production platform
+        id: platform
+        run: |
+          case "${PROD_PLATFORM:-linux/amd64}" in
+            linux/amd64|amd64|x64|x86_64)
+              echo "platform=linux/amd64" >> "$GITHUB_OUTPUT"
+              echo "os=linux" >> "$GITHUB_OUTPUT"
+              echo "arch=amd64" >> "$GITHUB_OUTPUT"
+              ;;
+            linux/arm64|arm64|arm|aarch64)
+              echo "platform=linux/arm64" >> "$GITHUB_OUTPUT"
+              echo "os=linux" >> "$GITHUB_OUTPUT"
+              echo "arch=arm64" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Invalid PROD_PLATFORM=${PROD_PLATFORM}. Use linux/amd64 or linux/arm64."
+              exit 1
+              ;;
+          esac
       - name: Generate Encore infra
         id: infra
         run: |
@@ -80,10 +103,11 @@ jobs:
       - name: Generate API artifacts
         run: pnpm api:gen
       - name: Build backend image
-        run: cd backend && encore build docker --config ../deploy/encore/infra.prod.json "$BACKEND_IMAGE"
+        run: cd backend && encore build docker --os "${{ steps.platform.outputs.os }}" --arch "${{ steps.platform.outputs.arch }}" --config ../deploy/encore/infra.prod.json "$BACKEND_IMAGE"
       - name: Build frontend image
         run: |
           docker build \
+            --platform "${{ steps.platform.outputs.platform }}" \
             -f frontend/Dockerfile \
             --build-arg NUXT_PUBLIC_API_BASE_URL="https://__API_DOMAIN__" \
             --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR="${NUXT_PUBLIC_ENCORE_TOOLBAR:-true}" \
@@ -92,7 +116,7 @@ jobs:
             -t "$FRONTEND_IMAGE" .
       - name: Build migrations image
         if: steps.infra.outputs.has_databases == 'true'
-        run: docker build -f deploy/migrations/Dockerfile -t "$MIGRATIONS_IMAGE" .
+        run: docker build --platform "${{ steps.platform.outputs.platform }}" -f deploy/migrations/Dockerfile -t "$MIGRATIONS_IMAGE" .
       - name: Push images
         run: |
           docker push "$BACKEND_IMAGE"

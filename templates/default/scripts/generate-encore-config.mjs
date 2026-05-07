@@ -15,6 +15,7 @@ const encoreDashboardUser = process.env.ENCORE_DASHBOARD_USER || "__ENCORE_DASHB
 const encoreDashboardPasswordHash = process.env.ENCORE_DASHBOARD_PASSWORD_HASH || "__ENCORE_DASHBOARD_PASSWORD_HASH_DEFAULT__";
 const encoreDashboardUrl = process.env.ENCORE_DASHBOARD_URL || "__ENCORE_DASHBOARD_URL__";
 const registry = "__REGISTRY__";
+const prodPlatform = process.env.PROD_PLATFORM || "__PROD_PLATFORM__";
 const komodoServer = "__KOMODO_SERVER__";
 const gitProvider = "__GIT_PROVIDER__";
 const gitAccount = "__GIT_ACCOUNT__";
@@ -196,6 +197,7 @@ function renderCompose() {
         condition: service_started`,
 `  frontend:
     image: \${FRONTEND_IMAGE:-${registry}/frontend:prod}
+    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
     restart: unless-stopped
     environment:
       NUXT_PUBLIC_API_BASE_URL: https://\${API_DOMAIN:-${apiDomain}}
@@ -210,6 +212,7 @@ function renderCompose() {
         condition: service_started`,
 `  backend:
     image: \${BACKEND_IMAGE:-${registry}/backend:prod}
+    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
     restart: unless-stopped
     environment:
 ${backendEnvironment()}
@@ -227,6 +230,7 @@ ${backendEnvironment()}
     services.push(
 `  migrations:
     image: \${MIGRATIONS_IMAGE:-${registry}/migrations:prod}
+    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
     profiles:
       - migrate
     environment:
@@ -334,6 +338,7 @@ function komodoEnvLines() {
     `ENCORE_DASHBOARD_URL = ${encoreDashboardUrl}`,
     "NUXT_PUBLIC_ENCORE_TOOLBAR = true",
     "NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME = production",
+    `PROD_PLATFORM = ${prodPlatform}`,
     "",
   ];
 

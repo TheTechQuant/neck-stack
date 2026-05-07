@@ -47,6 +47,8 @@ pnpm test:backend:serial
 pnpm api:gen
 pnpm openapi:gen
 pnpm build
+pnpm docker:backend
+pnpm docker:frontend
 pnpm deploy:komodo
 ```
 
@@ -66,6 +68,8 @@ Production is driven by Encore metadata:
 `pnpm infra:encore` is the only source of generated production config. It writes `deploy/encore/infra.prod.json`, `deploy/compose.yaml`, and `deploy/komodo/resources.toml`; there is no separate static example infra file to keep in sync.
 
 GitLab and GitHub CI both run validate, image build, migration, and Komodo deploy stages. They generate the frontend client/OpenAPI before frontend builds and trigger migrations after images are built but before the Komodo stack deploy webhook.
+
+Set `PROD_PLATFORM=linux/arm64` to target ARM production hosts. The scaffolded default is written to `.env`, Komodo resources, and CI; backend images use Encore `--os/--arch`, while frontend and migration images use Docker `--platform`.
 
 See [docs/deployment.md](docs/deployment.md) for CI variables, Komodo setup, dashboard access, and migration flow.
 

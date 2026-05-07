@@ -11,6 +11,7 @@ variables:
   BACKEND_IMAGE: "$CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHA"
   FRONTEND_IMAGE: "$CI_REGISTRY_IMAGE/frontend:$CI_COMMIT_SHA"
   MIGRATIONS_IMAGE: "$CI_REGISTRY_IMAGE/migrations:$CI_COMMIT_SHA"
+  PROD_PLATFORM: "__PROD_PLATFORM__"
 
 default:
   image: node:24-bookworm
@@ -59,14 +60,36 @@ build-images:
     - if [ -n "$ENCORE_AUTH_KEY" ]; then encore auth login --auth-key="$ENCORE_AUTH_KEY"; fi
     - pnpm infra:encore
     - |
+      case "${PROD_PLATFORM:-linux/amd64}" in
+        linux/amd64|amd64|x64|x86_64)
+          export PROD_PLATFORM="linux/amd64"
+          export PROD_OS="linux"
+          export PROD_ARCH="amd64"
+          ;;
+        linux/arm64|arm64|arm|aarch64)
+          export PROD_PLATFORM="linux/arm64"
+          export PROD_OS="linux"
+          export PROD_ARCH="arm64"
+          ;;
+        *)
+          echo "Invalid PROD_PLATFORM=${PROD_PLATFORM}. Use linux/amd64 or linux/arm64."
+          exit 1
+          ;;
+      esac
+      echo "Building production images for ${PROD_PLATFORM}"
+      RUNNER_ARCH="$(uname -m)"
+      if { [ "$PROD_ARCH" = "arm64" ] && [ "$RUNNER_ARCH" != "aarch64" ] && [ "$RUNNER_ARCH" != "arm64" ]; } || { [ "$PROD_ARCH" = "amd64" ] && [ "$RUNNER_ARCH" != "x86_64" ] && [ "$RUNNER_ARCH" != "amd64" ]; }; then
+        docker run --privileged --rm tonistiigi/binfmt --install "$PROD_ARCH" || echo "QEMU/binfmt setup skipped; use a native ${PROD_PLATFORM} runner or enable privileged Docker for cross-arch builds."
+      fi
+    - |
       HAS_DATABASES="$(node -e "const c=JSON.parse(require('node:fs').readFileSync('deploy/encore/infra.prod.json','utf8')); if (c.sql_servers?.length) process.stdout.write('true'); else process.stdout.write('false')")"
       export HAS_DATABASES
     - pnpm api:gen
-    - cd backend && encore build docker --config ../deploy/encore/infra.prod.json "$BACKEND_IMAGE" && cd ..
-    - docker build -f frontend/Dockerfile --build-arg NUXT_PUBLIC_API_BASE_URL="https://__API_DOMAIN__" --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR="${NUXT_PUBLIC_ENCORE_TOOLBAR:-true}" --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME="${NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME:-production}" --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR_SRC="${NUXT_PUBLIC_ENCORE_TOOLBAR_SRC:-}" -t "$FRONTEND_IMAGE" .
+    - cd backend && encore build docker --os "$PROD_OS" --arch "$PROD_ARCH" --config ../deploy/encore/infra.prod.json "$BACKEND_IMAGE" && cd ..
+    - docker build --platform "$PROD_PLATFORM" -f frontend/Dockerfile --build-arg NUXT_PUBLIC_API_BASE_URL="https://__API_DOMAIN__" --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR="${NUXT_PUBLIC_ENCORE_TOOLBAR:-true}" --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME="${NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME:-production}" --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR_SRC="${NUXT_PUBLIC_ENCORE_TOOLBAR_SRC:-}" -t "$FRONTEND_IMAGE" .
     - |
       if [ "$HAS_DATABASES" = "true" ]; then
-        docker build -f deploy/migrations/Dockerfile -t "$MIGRATIONS_IMAGE" .
+        docker build --platform "$PROD_PLATFORM" -f deploy/migrations/Dockerfile -t "$MIGRATIONS_IMAGE" .
       else
         echo "No Encore SQLDatabase declarations; skipping migrations image"
       fi

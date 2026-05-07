@@ -25,6 +25,7 @@ NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME=production
 BACKEND_IMAGE=__REGISTRY__/backend:prod
 FRONTEND_IMAGE=__REGISTRY__/frontend:prod
 # MIGRATIONS_IMAGE=__REGISTRY__/migrations:prod
+PROD_PLATFORM=__PROD_PLATFORM__
 
 # Set KOMODO_MIGRATE_WEBHOOK_URL only after SQLDatabase declarations exist.
 # Migrations run on the Komodo server so Postgres stays private.

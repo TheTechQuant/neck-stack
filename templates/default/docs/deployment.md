@@ -81,11 +81,27 @@ Caddy exposes `ENCORE_DASHBOARD_DOMAIN` and protects it with HTTP Basic Auth:
 
 This is a protected redirect to Encore Cloud, not the local development dashboard. The local dashboard belongs to `encore run`; production traces and logs should be viewed in Encore Cloud or the observability backend you configure.
 
+## Target Architecture
+
+`PROD_PLATFORM` controls the production image platform. The initializer writes it to `.env`, `.env.example`, CI defaults, and generated Komodo resources.
+
+Use `linux/amd64` for normal x86 servers or `linux/arm64` for ARM servers:
+
+```bash
+PROD_PLATFORM=linux/arm64 pnpm docker:backend
+PROD_PLATFORM=linux/arm64 pnpm docker:frontend
+```
+
+CI accepts the same values, plus short aliases like `amd64` and `arm64`. Backend builds pass the platform through Encore's `--os` and `--arch` flags; frontend and migration images use Docker `--platform`.
+
+Cross-architecture builds require either a native runner for the target architecture or QEMU/binfmt support. GitHub Actions installs QEMU automatically. GitLab attempts to install binfmt when needed, but your runner must allow privileged Docker for that path.
+
 ## GitLab CI
 
 Set these variables:
 
 - `ENCORE_AUTH_KEY`, optional but recommended for linked Encore apps.
+- `PROD_PLATFORM`, optional. Defaults to `__PROD_PLATFORM__`; set to `linux/arm64` for ARM production hosts.
 - `KOMODO_DEPLOY_WEBHOOK_URL`, required for deploy.
 - `KOMODO_MIGRATE_WEBHOOK_URL`, required only after SQL databases exist.
 
@@ -108,6 +124,7 @@ Set these repository variables or secrets:
 - `REGISTRY_USERNAME`, optional. Defaults to the GitHub actor.
 - `REGISTRY_PASSWORD`, optional. Defaults to `GITHUB_TOKEN`.
 - `ENCORE_AUTH_KEY`, optional but recommended for linked Encore apps.
+- `PROD_PLATFORM`, optional. Defaults to `__PROD_PLATFORM__`; set to `linux/arm64` for ARM production hosts.
 - `KOMODO_DEPLOY_WEBHOOK_URL`, required for deploy.
 - `KOMODO_MIGRATE_WEBHOOK_URL`, required only after SQL databases exist.
 

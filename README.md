@@ -47,6 +47,7 @@ pnpm create neck-stack my-app \
   --dashboard-user ops \
   --gitlab-project my-group/my-app \
   --registry registry.gitlab.com/my-group/my-app \
+  --prod-platform linux/arm64 \
   --komodo-server server-prod
 ```
 
@@ -57,6 +58,8 @@ By default the initializer registers the existing backend template with Encore C
 The generated app starts with only Caddy, frontend, and backend services. Postgres, Redis, NSQ, migration actions, and cron runner actions are generated only when Encore metadata reports matching backend resources. Object storage is deliberately external: use S3, Cloudflare R2, GCS, or another managed storage provider instead of adding MinIO to the default Komodo stack.
 
 Encore SQL migrations are run with `golang-migrate/migrate` after images are built and before the stack restarts. Postgres and Redis stay private to the Compose network. Generated passwords let the first stack boot without manual secret work, and every generated password can be overridden in Komodo or server `.env` before volumes are initialized.
+
+Production image architecture is a first-class setting. Use `--prod-platform linux/arm64` at scaffold time, or override `PROD_PLATFORM` in CI/Komodo later; backend builds map it to Encore `--os/--arch`, and frontend/migration images use Docker `--platform`.
 
 The production Encore dashboard entrypoint is `ENCORE_DASHBOARD_DOMAIN`. Caddy protects it with HTTP Basic Auth and redirects to `ENCORE_DASHBOARD_URL`, which defaults to the Encore Cloud app page. The local Encore development dashboard is still local-only; production traces belong in Encore Cloud or your configured observability stack.
 
