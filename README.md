@@ -63,7 +63,7 @@ Production image architecture is a first-class setting. Use `--prod-platform lin
 
 The production Encore dashboard entrypoint is `ENCORE_DASHBOARD_DOMAIN`. Caddy protects it with HTTP Basic Auth and redirects to `ENCORE_DASHBOARD_URL`, which defaults to the Encore Cloud app page. The local Encore development dashboard is still local-only; production traces belong in Encore Cloud or your configured observability stack.
 
-Generated deployment config has one source of truth: `pnpm infra:encore` writes `deploy/encore/infra.prod.json`, `deploy/compose.yaml`, and `deploy/komodo/resources.toml` from Encore metadata. There is no static `infra.prod.example.json`; examples drift, generated config is explicit.
+Generated deployment config has one source of truth: `pnpm infra:encore` writes `deploy/encore/infra.prod.json`, `deploy/compose.yaml`, and `deploy/komodo/resources.toml` from Encore metadata.
 
 ## Generated Commands
 
