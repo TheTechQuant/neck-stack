@@ -1,0 +1,161 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+env:
+  REGISTRY_IMAGE: ${{ vars.REGISTRY_IMAGE || format('ghcr.io/{0}', github.repository) }}
+  BACKEND_IMAGE: ${{ vars.REGISTRY_IMAGE || format('ghcr.io/{0}', github.repository) }}/backend:${{ github.sha }}
+  FRONTEND_IMAGE: ${{ vars.REGISTRY_IMAGE || format('ghcr.io/{0}', github.repository) }}/frontend:${{ github.sha }}
+  MIGRATIONS_IMAGE: ${{ vars.REGISTRY_IMAGE || format('ghcr.io/{0}', github.repository) }}/migrations:${{ github.sha }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      ENCORE_AUTH_KEY: ${{ secrets.ENCORE_AUTH_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install Encore
+        run: |
+          curl -fsSL https://encore.dev/install.sh -o /tmp/install-encore.sh
+          bash /tmp/install-encore.sh
+          echo "$HOME/.encore/bin" >> "$GITHUB_PATH"
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install dependencies
+        run: pnpm dlx zx scripts/install.mjs --frozen-lockfile
+      - name: Login to Encore
+        if: env.ENCORE_AUTH_KEY != ''
+        run: encore auth login --auth-key="$ENCORE_AUTH_KEY"
+      - name: Check
+        run: pnpm check
+
+  build-images:
+    if: github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    env:
+      ENCORE_AUTH_KEY: ${{ secrets.ENCORE_AUTH_KEY }}
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      has_databases: ${{ steps.infra.outputs.has_databases }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install Encore
+        run: |
+          curl -fsSL https://encore.dev/install.sh -o /tmp/install-encore.sh
+          bash /tmp/install-encore.sh
+          echo "$HOME/.encore/bin" >> "$GITHUB_PATH"
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install dependencies
+        run: pnpm dlx zx scripts/install.mjs --frozen-lockfile
+      - name: Login to Encore
+        if: env.ENCORE_AUTH_KEY != ''
+        run: encore auth login --auth-key="$ENCORE_AUTH_KEY"
+      - name: Login to registry
+        env:
+          REGISTRY_HOST: ${{ vars.REGISTRY_HOST || 'ghcr.io' }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD || github.token }}
+        run: echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY_HOST" -u "$REGISTRY_USERNAME" --password-stdin
+      - name: Generate Encore infra
+        id: infra
+        run: |
+          pnpm infra:encore
+          HAS_DATABASES="$(node -e "const c=JSON.parse(require('node:fs').readFileSync('deploy/encore/infra.prod.json','utf8')); process.stdout.write(c.sql_servers?.length ? 'true' : 'false')")"
+          echo "has_databases=$HAS_DATABASES" >> "$GITHUB_OUTPUT"
+      - name: Generate API artifacts
+        run: pnpm api:gen
+      - name: Build backend image
+        run: cd backend && encore build docker --config ../deploy/encore/infra.prod.json "$BACKEND_IMAGE"
+      - name: Build frontend image
+        run: |
+          docker build \
+            -f frontend/Dockerfile \
+            --build-arg NUXT_PUBLIC_API_BASE_URL="https://__API_DOMAIN__" \
+            --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR="${NUXT_PUBLIC_ENCORE_TOOLBAR:-true}" \
+            --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME="${NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME:-production}" \
+            --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR_SRC="${NUXT_PUBLIC_ENCORE_TOOLBAR_SRC:-}" \
+            -t "$FRONTEND_IMAGE" .
+      - name: Build migrations image
+        if: steps.infra.outputs.has_databases == 'true'
+        run: docker build -f deploy/migrations/Dockerfile -t "$MIGRATIONS_IMAGE" .
+      - name: Push images
+        run: |
+          docker push "$BACKEND_IMAGE"
+          docker push "$FRONTEND_IMAGE"
+          docker tag "$BACKEND_IMAGE" "$REGISTRY_IMAGE/backend:prod"
+          docker tag "$FRONTEND_IMAGE" "$REGISTRY_IMAGE/frontend:prod"
+          docker push "$REGISTRY_IMAGE/backend:prod"
+          docker push "$REGISTRY_IMAGE/frontend:prod"
+      - name: Push migrations image
+        if: steps.infra.outputs.has_databases == 'true'
+        run: |
+          docker push "$MIGRATIONS_IMAGE"
+          docker tag "$MIGRATIONS_IMAGE" "$REGISTRY_IMAGE/migrations:prod"
+          docker push "$REGISTRY_IMAGE/migrations:prod"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: generated-deploy
+          retention-days: 7
+          path: |
+            deploy/encore/infra.prod.json
+            deploy/compose.yaml
+            deploy/komodo/resources.toml
+
+  migrate-prod:
+    if: github.ref == 'refs/heads/main'
+    needs: build-images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/download-artifact@v4
+        with:
+          name: generated-deploy
+      - name: Install dependencies
+        run: |
+          corepack enable
+          pnpm dlx zx scripts/install.mjs --frozen-lockfile
+      - name: Run Komodo migrations
+        env:
+          KOMODO_MIGRATE_WEBHOOK_URL: ${{ secrets.KOMODO_MIGRATE_WEBHOOK_URL }}
+        run: pnpm deploy:komodo -- --skip-infra --migrate-only
+
+  deploy-komodo:
+    if: github.ref == 'refs/heads/main'
+    needs:
+      - build-images
+      - migrate-prod
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/download-artifact@v4
+        with:
+          name: generated-deploy
+      - name: Install dependencies
+        run: |
+          corepack enable
+          pnpm dlx zx scripts/install.mjs --frozen-lockfile
+      - name: Deploy Komodo stack
+        env:
+          KOMODO_DEPLOY_WEBHOOK_URL: ${{ secrets.KOMODO_DEPLOY_WEBHOOK_URL }}
+        run: pnpm deploy:komodo -- --skip-infra --deploy-only

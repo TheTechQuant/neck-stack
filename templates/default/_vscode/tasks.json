@@ -1,0 +1,61 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "encore: test backend",
+      "type": "shell",
+      "command": "pnpm test:backend",
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "encore: debug backend (break)",
+      "type": "shell",
+      "command": "pnpm debug:backend:break",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "encore",
+        "pattern": {
+          "regexp": "^$^"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^.*encore run .*--debug=break.*$",
+          "endsPattern": "^Debugger listening on ws://127\\.0\\.0\\.1:9229/.*$"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "encore: debug backend",
+      "type": "shell",
+      "command": "pnpm debug:backend",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "encore",
+        "pattern": {
+          "regexp": "^$^"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^.*encore run .*--debug.*$",
+          "endsPattern": "^Debugger listening on ws://127\\.0\\.0\\.1:9229/.*$"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    }
+  ]
+}

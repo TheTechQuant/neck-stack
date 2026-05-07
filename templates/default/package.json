@@ -1,0 +1,44 @@
+{
+  "name": "__PACKAGE_NAME__",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.18.3",
+  "scripts": {
+    "install:all": "zx scripts/install.mjs",
+    "deps": "pnpm install:all",
+    "dev": "zx scripts/dev.mjs",
+    "build": "zx scripts/build.mjs",
+    "check": "zx scripts/check.mjs",
+    "test": "pnpm test:backend",
+    "test:backend": "cd backend && encore test --fileParallelism=true",
+    "test:backend:serial": "cd backend && encore test",
+    "test:backend:ci": "pnpm test:backend",
+    "api:gen": "pnpm client:gen && pnpm openapi:gen",
+    "debug:backend": "pnpm --filter backend debug",
+    "debug:backend:break": "pnpm --filter backend debug:break",
+    "client:gen": "zx scripts/generate-client.mjs",
+    "client:watch": "zx scripts/watch-client.mjs",
+    "openapi:gen": "zx scripts/generate-openapi.mjs",
+    "infra:encore": "zx scripts/generate-encore-config.mjs",
+    "mcp:encore": "encore mcp run --app=__APP_ID__",
+    "mcp:encore:start": "encore mcp start --app=__APP_ID__",
+    "deploy:komodo": "zx scripts/deploy-komodo.mjs",
+    "migrate:prod": "node scripts/run-migrations.mjs",
+    "docker:frontend": "pnpm api:gen && docker build -f frontend/Dockerfile -t ${FRONTEND_IMAGE:-__REGISTRY__/frontend:local} .",
+    "docker:migrations": "docker build -f deploy/migrations/Dockerfile -t ${MIGRATIONS_IMAGE:-__REGISTRY__/migrations:local} ."
+  },
+  "devDependencies": {
+    "chalk": "^5.6.2",
+    "typescript": "^5.9.3",
+    "zx": "^8.8.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@parcel/watcher",
+      "esbuild"
+    ]
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

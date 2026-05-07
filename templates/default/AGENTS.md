@@ -1,0 +1,21 @@
+# Agent Instructions
+
+- Prioritize maintainability, compactness, simplicity, performance, and consistency with the rest of the application.
+- Follow existing local patterns before introducing new abstractions or dependencies (for backend, use Encore best practices).
+- Keep UI changes aligned with the brand guidelines and existing component styling.
+- Prefer small, focused edits with clear behavioral intent.
+- If a script is needed, prefer `zx` unless the existing tooling points elsewhere.
+- Avoid over-commenting code; add comments only when they clarify non-obvious intent or constraints.
+- Before finishing edits, re-open every file you edited and check its line count; if your edits caused any file to start exceeding 1000 LoC, do not mark the task done until you refactor, break down, or componentize it into smaller maintainable units.
+- Treat accessibility, hydration stability, responsive layout, and image performance as baseline requirements for frontend work.
+- Keep frontend pages architecturally clean: pages should almost never own all state management themselves; move substantial state, data loading, derived state, and mutations into composables, stores, services, or components that match the app's existing patterns.
+- Frontend data fetching from the server should almost exclusively use Encore-generated clients from `encore gen client` (https://encore.dev/docs/ts/cli/client-generation); avoid hand-written fetch paths unless there is a specific reason the generated client cannot cover the use case.
+- Keep authentication code lightweight; avoid react islands and pulling dependencies needing react.
+- Use environment-driven configuration for provider keys, third party URLs, and other settings.
+- Run the relevant typecheck/build commands after code changes when feasible.
+- For Encore backend validation, prefer `encore check` because it compiles the app, starts required infrastructure, verifies service health, and exits. Use inline checks like `encore check 'curl /ping'`, multiple semicolon-separated commands, or `encore check < commands.txt` for endpoint flows.
+- Use the local-encore MCP tools for Encore apps when available, especially `call_endpoint` for API checks and `get_traces` / `get_trace_spans` to inspect traces after exercising behavior.
+- Never start frontend server via pnpm dev - it never exits and is a bad practice to start from agent thread; if you need to validate then just build the frontend.
+- Prefer maintainability/scalability over other characteristics: each additional piece of code has to belong where it can preferably be detached when substantial; prefer pub/sub-based flows when they make sense (user points, analytics, etc.).
+- Use Encore streaming APIs (https://encore.dev/docs/ts/primitives/streaming-apis) when realtime data updates are needed, and deliberately consider whether they should connect to Pub/Sub or another event source so simple edits can grow into a scalable architecture later.
+- In Encore backends, creating a new service is not overkill when it gives the domain a cleaner boundary. When introducing shared backend behavior, consider an `expose: false` API and call it through Encore service-to-service API calls via `~encore/clients` (https://encore.dev/docs/ts/primitives/api-calls) instead of bypassing service boundaries with ad hoc shared code.

@@ -1,0 +1,21 @@
+{
+	email {$CADDY_ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy frontend:3000
+}
+
+{$API_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy backend:8080
+}
+
+{$ENCORE_DASHBOARD_DOMAIN} {
+	encode zstd gzip
+	basic_auth {
+		{$ENCORE_DASHBOARD_USER} {$ENCORE_DASHBOARD_PASSWORD_HASH}
+	}
+	redir {$ENCORE_DASHBOARD_URL} 302
+}

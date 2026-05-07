@@ -1,0 +1,123 @@
+stages:
+  - validate
+  - build
+  - migrate
+  - deploy
+
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_TLS_CERTDIR: ""
+  BACKEND_IMAGE: "$CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHA"
+  FRONTEND_IMAGE: "$CI_REGISTRY_IMAGE/frontend:$CI_COMMIT_SHA"
+  MIGRATIONS_IMAGE: "$CI_REGISTRY_IMAGE/migrations:$CI_COMMIT_SHA"
+
+default:
+  image: node:24-bookworm
+  cache:
+    key:
+      files:
+        - pnpm-lock.yaml
+    paths:
+      - .pnpm-store
+  before_script:
+    - corepack enable
+    - pnpm config set store-dir .pnpm-store
+
+validate:
+  stage: validate
+  script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends ca-certificates curl
+    - curl -fsSL https://encore.dev/install.sh -o /tmp/install-encore.sh
+    - bash /tmp/install-encore.sh
+    - export PATH="$HOME/.encore/bin:$PATH"
+    - if [ -n "$ENCORE_AUTH_KEY" ]; then encore auth login --auth-key="$ENCORE_AUTH_KEY"; fi
+    - pnpm dlx zx scripts/install.mjs --frozen-lockfile
+    - pnpm check
+
+.docker_job:
+  image: node:24-bookworm
+  services:
+    - name: docker:27-dind
+      command: ["--tls=false"]
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends ca-certificates curl docker.io
+    - corepack enable
+    - pnpm config set store-dir .pnpm-store
+    - pnpm dlx zx scripts/install.mjs --frozen-lockfile
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
+
+build-images:
+  extends: .docker_job
+  stage: build
+  script:
+    - curl -fsSL https://encore.dev/install.sh -o /tmp/install-encore.sh
+    - bash /tmp/install-encore.sh
+    - export PATH="$HOME/.encore/bin:$PATH"
+    - if [ -n "$ENCORE_AUTH_KEY" ]; then encore auth login --auth-key="$ENCORE_AUTH_KEY"; fi
+    - pnpm infra:encore
+    - |
+      HAS_DATABASES="$(node -e "const c=JSON.parse(require('node:fs').readFileSync('deploy/encore/infra.prod.json','utf8')); if (c.sql_servers?.length) process.stdout.write('true'); else process.stdout.write('false')")"
+      export HAS_DATABASES
+    - pnpm api:gen
+    - cd backend && encore build docker --config ../deploy/encore/infra.prod.json "$BACKEND_IMAGE" && cd ..
+    - docker build -f frontend/Dockerfile --build-arg NUXT_PUBLIC_API_BASE_URL="https://__API_DOMAIN__" --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR="${NUXT_PUBLIC_ENCORE_TOOLBAR:-true}" --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME="${NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME:-production}" --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR_SRC="${NUXT_PUBLIC_ENCORE_TOOLBAR_SRC:-}" -t "$FRONTEND_IMAGE" .
+    - |
+      if [ "$HAS_DATABASES" = "true" ]; then
+        docker build -f deploy/migrations/Dockerfile -t "$MIGRATIONS_IMAGE" .
+      else
+        echo "No Encore SQLDatabase declarations; skipping migrations image"
+      fi
+    - docker push "$BACKEND_IMAGE"
+    - docker push "$FRONTEND_IMAGE"
+    - |
+      if [ "$HAS_DATABASES" = "true" ]; then
+        docker push "$MIGRATIONS_IMAGE"
+      fi
+    - docker tag "$BACKEND_IMAGE" "$CI_REGISTRY_IMAGE/backend:prod"
+    - docker tag "$FRONTEND_IMAGE" "$CI_REGISTRY_IMAGE/frontend:prod"
+    - |
+      if [ "$HAS_DATABASES" = "true" ]; then
+        docker tag "$MIGRATIONS_IMAGE" "$CI_REGISTRY_IMAGE/migrations:prod"
+      fi
+    - docker push "$CI_REGISTRY_IMAGE/backend:prod"
+    - docker push "$CI_REGISTRY_IMAGE/frontend:prod"
+    - |
+      if [ "$HAS_DATABASES" = "true" ]; then
+        docker push "$CI_REGISTRY_IMAGE/migrations:prod"
+      fi
+  artifacts:
+    expire_in: 7 days
+    paths:
+      - deploy/encore/infra.prod.json
+      - deploy/compose.yaml
+      - deploy/komodo/resources.toml
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+migrate-prod:
+  image: node:24-bookworm
+  stage: migrate
+  needs:
+    - job: build-images
+      artifacts: true
+  script:
+    - pnpm dlx zx scripts/install.mjs --frozen-lockfile
+    - pnpm deploy:komodo -- --skip-infra --migrate-only
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+deploy-komodo:
+  stage: deploy
+  image: node:24-bookworm
+  needs:
+    - job: build-images
+      artifacts: true
+    - job: migrate-prod
+  script:
+    - pnpm dlx zx scripts/install.mjs --frozen-lockfile
+    - pnpm deploy:komodo -- --skip-infra --deploy-only
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'

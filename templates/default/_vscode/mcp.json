@@ -1,0 +1,13 @@
+{
+  "servers": {
+    "encoreLocal": {
+      "type": "stdio",
+      "command": "encore",
+      "args": [
+        "mcp",
+        "run",
+        "--app=__APP_ID__"
+      ]
+    }
+  }
+}

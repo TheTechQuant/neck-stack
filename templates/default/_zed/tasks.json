@@ -1,0 +1,48 @@
+[
+  {
+    "label": "encore: test backend",
+    "command": "pnpm",
+    "args": [
+      "test:backend"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always"
+  },
+  {
+    "label": "encore: debug backend (break)",
+    "command": "pnpm",
+    "args": [
+      "debug:backend:break"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "use_new_terminal": true,
+    "allow_concurrent_runs": false,
+    "reveal": "always"
+  },
+  {
+    "label": "encore: debug backend",
+    "command": "pnpm",
+    "args": [
+      "debug:backend"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "use_new_terminal": true,
+    "allow_concurrent_runs": false,
+    "reveal": "always"
+  },
+  {
+    "label": "encore: mcp start",
+    "command": "encore",
+    "args": [
+      "mcp",
+      "start",
+      "--app=__APP_ID__"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "use_new_terminal": true,
+    "allow_concurrent_runs": false,
+    "reveal": "always"
+  }
+]

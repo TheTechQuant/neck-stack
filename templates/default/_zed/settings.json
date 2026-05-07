@@ -1,0 +1,13 @@
+{
+  "context_servers": {
+    "encore-local": {
+      "command": "encore",
+      "args": [
+        "mcp",
+        "run",
+        "--app=__APP_ID__"
+      ],
+      "env": {}
+    }
+  }
+}

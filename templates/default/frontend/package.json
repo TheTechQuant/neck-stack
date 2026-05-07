@@ -1,0 +1,19 @@
+{
+  "name": "frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev --host 0.0.0.0",
+    "build": "nuxt build",
+    "preview": "nuxt preview --host 0.0.0.0",
+    "typecheck": "nuxt typecheck"
+  },
+  "dependencies": {
+    "@nuxt/scripts": "^1.0.6",
+    "nuxt": "^4.4.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vue-tsc": "^3.1.3"
+  }
+}

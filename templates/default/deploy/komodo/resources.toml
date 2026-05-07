@@ -1,0 +1,30 @@
+[[stack]]
+name = "__APP_ID__"
+description = "NECK production stack for __APP_NAME__"
+tags = ["neck", "production"]
+deploy = true
+
+[stack.config]
+server = "__KOMODO_SERVER__"
+project_name = "__APP_ID__"
+run_directory = "__RUN_DIRECTORY__"
+file_paths = ["deploy/compose.yaml"]
+git_provider = "__GIT_PROVIDER__"
+git_account = "__GIT_ACCOUNT__"
+repo = "__GITLAB_PROJECT__"
+branch = "main"
+environment = """
+APP_ENV = production
+DOMAIN = __DOMAIN__
+API_DOMAIN = __API_DOMAIN__
+CADDY_ACME_EMAIL = __CADDY_ACME_EMAIL__
+ENCORE_DASHBOARD_DOMAIN = __ENCORE_DASHBOARD_DOMAIN__
+ENCORE_DASHBOARD_USER = __ENCORE_DASHBOARD_USER__
+ENCORE_DASHBOARD_PASSWORD_HASH = __ENCORE_DASHBOARD_PASSWORD_HASH_DEFAULT__
+ENCORE_DASHBOARD_URL = __ENCORE_DASHBOARD_URL__
+NUXT_PUBLIC_ENCORE_TOOLBAR = true
+NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME = production
+
+BACKEND_IMAGE = __REGISTRY__/backend:prod
+FRONTEND_IMAGE = __REGISTRY__/frontend:prod
+"""
