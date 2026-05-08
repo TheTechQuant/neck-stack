@@ -20,7 +20,9 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     env:
-      ENCORE_AUTH_KEY: ${{ secrets.ENCORE_AUTH_KEY }}
+      ENCORE_CLOUD_AUTH_KEY: ${{ secrets.ENCORE_CLOUD_AUTH_KEY }}
+      ENCORE_AUTH_CONFIG: ${{ secrets.ENCORE_AUTH_CONFIG }}
+      ENCORE_AUTH_TOKEN: ${{ secrets.ENCORE_AUTH_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -35,9 +37,8 @@ jobs:
         run: corepack enable
       - name: Install dependencies
         run: pnpm dlx zx scripts/install.mjs --frozen-lockfile
-      - name: Login to Encore
-        if: env.ENCORE_AUTH_KEY != ''
-        run: encore auth login --auth-key="$ENCORE_AUTH_KEY"
+      - name: Configure Encore auth
+        run: pnpm exec zx scripts/encore-ci-auth.mjs
       - name: Check
         run: pnpm check
 
@@ -46,7 +47,9 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     env:
-      ENCORE_AUTH_KEY: ${{ secrets.ENCORE_AUTH_KEY }}
+      ENCORE_CLOUD_AUTH_KEY: ${{ secrets.ENCORE_CLOUD_AUTH_KEY }}
+      ENCORE_AUTH_CONFIG: ${{ secrets.ENCORE_AUTH_CONFIG }}
+      ENCORE_AUTH_TOKEN: ${{ secrets.ENCORE_AUTH_TOKEN }}
     permissions:
       contents: read
       packages: write
@@ -64,9 +67,8 @@ jobs:
         run: corepack enable
       - name: Install dependencies
         run: pnpm dlx zx scripts/install.mjs --frozen-lockfile
-      - name: Login to Encore
-        if: env.ENCORE_AUTH_KEY != ''
-        run: encore auth login --auth-key="$ENCORE_AUTH_KEY"
+      - name: Configure Encore auth
+        run: pnpm exec zx scripts/encore-ci-auth.mjs
       - name: Login to registry
         env:
           REGISTRY_HOST: ${{ vars.REGISTRY_HOST || 'ghcr.io' }}

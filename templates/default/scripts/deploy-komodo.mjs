@@ -3,33 +3,14 @@ import { $, fs } from "zx";
 import { createHmac } from "node:crypto";
 import { parse } from "@bomb.sh/args";
 import chalk from "chalk";
+import { loadDotEnv } from "./lib/env.mjs";
 
 $.verbose = true;
-
-async function loadDotEnv(file = ".env") {
-  if (!(await fs.pathExists(file))) return;
-
-  const source = await fs.readFile(file, "utf8");
-  for (const line of source.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-
-    const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
-    if (!match) continue;
-
-    const [, key, rawValue] = match;
-    if (process.env[key] !== undefined) continue;
-
-    process.env[key] = rawValue
-      .trim()
-      .replace(/^(['"])([\s\S]*)\1$/, "$2");
-  }
-}
 
 await loadDotEnv();
 console.log(`\n${chalk.bold.cyan("Deploy with Komodo")}`);
 
-const args = parse(process.argv.slice(3), {
+const args = parse(process.argv.slice(3).filter((arg) => arg !== "--"), {
   alias: { h: "help" },
   boolean: ["deploy-only", "dry-run", "help", "migrate-only", "skip-infra", "skip-migrations"],
 });
@@ -92,7 +73,7 @@ function appId() {
 }
 
 function derivedWebhookUrl(name) {
-  const baseUrl = normalizedBaseUrl(process.env.KOMODO_URL);
+  const baseUrl = normalizedBaseUrl(process.env.KOMODO_URL || "__KOMODO_URL__");
   if (!baseUrl) return "";
 
   const provider = webhookProvider();

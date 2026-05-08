@@ -2,6 +2,9 @@
 import { fs, path } from "zx";
 import chalk from "chalk";
 import { discoverEncoreResources } from "./lib/encore-resources.mjs";
+import { loadDotEnv } from "./lib/env.mjs";
+
+await loadDotEnv();
 
 const appId = "__APP_ID__";
 const postgresUser = "__POSTGRES_USER__";
@@ -10,7 +13,7 @@ const defaultRedisPassword = "__REDIS_PASSWORD_DEFAULT__";
 const domain = process.env.DOMAIN || "__DOMAIN__";
 const neckDashUser = process.env.NECK_DASH_USER || "__NECK_DASH_USER__";
 const neckDashPasswordHash = process.env.NECK_DASH_PASSWORD_HASH || "__NECK_DASH_PASSWORD_HASH_DEFAULT__";
-const defaultEncoreAuthKey = "__ENCORE_AUTH_KEY_DEFAULT__";
+const defaultTraceAuthKey = "__TRACE_AUTH_KEY_DEFAULT__";
 const registry = "__REGISTRY__";
 const defaultNeckDashImage = "ghcr.io/thetechquant/neck-stack/neckdash:latest";
 const defaultNeckDashUIImage = "ghcr.io/thetechquant/neck-stack/neckdash-ui:latest";
@@ -88,7 +91,7 @@ function renderInfraConfig() {
       {
         type: "key",
         id: 1,
-        key: { $env: "ENCORE_AUTH_KEY" },
+        key: defaultTraceAuthKey,
       },
     ],
     metrics: {
@@ -169,7 +172,7 @@ function renderInfraConfig() {
 function backendEnvironment() {
   const env = [
     "      PORT: 8080",
-    `      ENCORE_AUTH_KEY: ${composeEnv("ENCORE_AUTH_KEY", defaultEncoreAuthKey)}`,
+    "      ENCORE_RUNTIME_CONFIG_PATH: /encore/runtime.prod.pb",
     `      VICTORIA_METRICS_REMOTE_WRITE_URL: \${VICTORIA_METRICS_REMOTE_WRITE_URL:-http://victoria-metrics:8428/api/v1/write?extra_label=app_id=${appId}}`,
   ];
 
@@ -246,10 +249,16 @@ function renderCompose() {
     image: \${BACKEND_IMAGE:-${registry}/backend:prod}
     platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
     restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - -c
+      - unset ENCORE_INFRA_CONFIG_PATH; exec node --enable-source-maps /workspace/backend/.encore/build/combined/combined/main.mjs
     environment:
 ${backendEnvironment()}
     expose:
       - "8080"
+    volumes:
+      - ./encore/runtime.prod.pb:/encore/runtime.prod.pb:ro
     networks:
       - default
       - neck-ingress${backendDependsOn()}
@@ -373,8 +382,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: 8080
-      ENCORE_AUTH_KEY: ${composeEnv("ENCORE_AUTH_KEY", defaultEncoreAuthKey)}
-      NECKDASH_TRACE_AUTH_KEYS: \${NECKDASH_TRACE_AUTH_KEYS:-}
+      NECKDASH_TRACE_AUTH_KEYS: \${NECKDASH_TRACE_AUTH_KEYS:-${appId}=${defaultTraceAuthKey}}
       NECKDASH_REQUIRE_TRACE_AUTH: \${NECKDASH_REQUIRE_TRACE_AUTH:-true}
       NECKDASH_TRACE_SERVICE_FANOUT_LIMIT: \${NECKDASH_TRACE_SERVICE_FANOUT_LIMIT:-32}
       NECKDASH_APPS_ROOT: /apps
@@ -480,7 +488,6 @@ function komodoEnvLines() {
     "NECK_INGRESS_NETWORK = neck-ingress",
     `NECK_DASH_USER = ${neckDashUser}`,
     `NECK_DASH_PASSWORD_HASH = ${neckDashPasswordHash}`,
-    `ENCORE_AUTH_KEY = ${defaultEncoreAuthKey}`,
     "NUXT_PUBLIC_ENCORE_TOOLBAR = true",
     "NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME = production",
     "NUXT_PUBLIC_API_BASE_URL = /api",
@@ -513,8 +520,7 @@ function neckDashKomodoEnvLines() {
   return [
     "NECK_INGRESS_NETWORK = neck-ingress",
     `NECKDASH_APPS_ROOT = ${defaultNeckDashAppsRoot}`,
-    `ENCORE_AUTH_KEY = ${defaultEncoreAuthKey}`,
-    `NECKDASH_TRACE_AUTH_KEYS = ${appId}=${defaultEncoreAuthKey}`,
+    `NECKDASH_TRACE_AUTH_KEYS = ${appId}=${defaultTraceAuthKey}`,
     "NECKDASH_REQUIRE_TRACE_AUTH = true",
     "NECKDASH_TRACE_SERVICE_FANOUT_LIMIT = 32",
     "NUXT_APP_BASE_URL = /__neck_dash/",
@@ -625,7 +631,7 @@ function renderKomodoResources() {
 name = ${tomlString(appId)}
 description = ${tomlString(`NECK production stack for __APP_NAME__`)}
 tags = ["neck", "production"]
-deploy = true
+deploy = false
 
 [stack.config]
 server = ${tomlString(komodoServer)}

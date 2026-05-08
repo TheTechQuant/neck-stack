@@ -36,8 +36,8 @@ validate:
     - curl -fsSL https://encore.dev/install.sh -o /tmp/install-encore.sh
     - bash /tmp/install-encore.sh
     - export PATH="$HOME/.encore/bin:$PATH"
-    - if [ -n "$ENCORE_AUTH_KEY" ]; then encore auth login --auth-key="$ENCORE_AUTH_KEY"; fi
     - pnpm dlx zx scripts/install.mjs --frozen-lockfile
+    - pnpm exec zx scripts/encore-ci-auth.mjs
     - pnpm check
 
 .docker_job:
@@ -60,7 +60,7 @@ build-images:
     - curl -fsSL https://encore.dev/install.sh -o /tmp/install-encore.sh
     - bash /tmp/install-encore.sh
     - export PATH="$HOME/.encore/bin:$PATH"
-    - if [ -n "$ENCORE_AUTH_KEY" ]; then encore auth login --auth-key="$ENCORE_AUTH_KEY"; fi
+    - pnpm exec zx scripts/encore-ci-auth.mjs
     - pnpm infra:encore
     - export HAS_SQL="$(node -e 'const fs=require("fs"); const infra=JSON.parse(fs.readFileSync("deploy/encore/infra.prod.json","utf8")); console.log(Array.isArray(infra.sql_servers)&&infra.sql_servers.some((s)=>Object.keys(s.databases||{}).length>0)?"true":"false")')"
     - |

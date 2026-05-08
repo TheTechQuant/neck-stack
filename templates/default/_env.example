@@ -1,59 +1,17 @@
-APP_ENV=production
+# Operator-editable settings.
 DOMAIN=__DOMAIN__
-NECK_INGRESS_NETWORK=neck-ingress
-
-# Caddy protects https://DOMAIN/__neck_dash with HTTP Basic Auth.
-NECK_DASH_USER=__NECK_DASH_USER__
-NECK_DASH_PASSWORD=__NECK_DASH_PASSWORD_DEFAULT__
-NECK_DASH_PASSWORD_HASH='__NECK_DASH_PASSWORD_HASH_DEFAULT__'
-ENCORE_AUTH_KEY=__ENCORE_AUTH_KEY_DEFAULT__
-
-# Shared per-server NECK Dash. Import deploy/neckdash/resources.toml once per Komodo server.
-NECKDASH_APPS_ROOT=/opt/stacks
-NECKDASH_TRACE_AUTH_KEYS=__APP_ID__=__ENCORE_AUTH_KEY_DEFAULT__
-NECKDASH_REQUIRE_TRACE_AUTH=true
-NECKDASH_TRACE_SERVICE_FANOUT_LIMIT=32
-NUXT_APP_BASE_URL=/__neck_dash/
-NUXT_PUBLIC_NECKDASH_API_BASE_URL=/__neck_dash/api
-NUXT_NECKDASH_API_INTERNAL_BASE_URL=http://neckdash:8080
-VICTORIA_TRACES_OTLP_URL=http://victoria-traces:10428/insert/opentelemetry/v1/traces
-VICTORIA_TRACES_QUERY_URL=http://victoria-traces:10428/select/jaeger
-VICTORIA_TRACES_RETENTION=30d
-VICTORIA_METRICS_QUERY_URL=http://victoria-metrics:8428/api/v1/query
-VICTORIA_METRICS_RETENTION=90d
-VICTORIA_LOGS_INSERT_URL=http://victoria-logs:9428/insert/jsonline?_stream_fields=app_id,env_id,service,level&_time_field=timestamp&_msg_field=message
-VICTORIA_LOGS_QUERY_URL=http://victoria-logs:9428/select/logsql/query
-VICTORIA_LOGS_RETENTION=30d
-
-NUXT_PUBLIC_API_BASE_URL=/api
-NUXT_API_INTERNAL_BASE_URL=http://backend:8080
-VICTORIA_METRICS_REMOTE_WRITE_URL=http://victoria-metrics:8428/api/v1/write?extra_label=app_id=__APP_ID__
-PUBLIC_WEB_URL=https://__DOMAIN__
-NUXT_PUBLIC_ENCORE_TOOLBAR=true
-NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME=production
-# NUXT_PUBLIC_ENCORE_TOOLBAR_SRC=https://encore.dev/encore-toolbar.js?appId=__APP_ID__&envName=production
-
-# Optional SQL/cache settings. They matter only after Encore metadata reports SQLDatabase/CacheCluster declarations.
-# POSTGRES_USER=__POSTGRES_USER__
-# POSTGRES_PASSWORD=replace-generated-default
-# REDIS_PASSWORD=replace-generated-default
-# Add app secret env vars here when Encore metadata reports them.
-
-BACKEND_IMAGE=__REGISTRY__/backend:prod
-FRONTEND_IMAGE=__REGISTRY__/frontend:prod
-NECKDASH_IMAGE=ghcr.io/thetechquant/neck-stack/neckdash:latest
-NECKDASH_UI_IMAGE=ghcr.io/thetechquant/neck-stack/neckdash-ui:latest
-VICTORIA_TRACES_IMAGE=victoriametrics/victoria-traces:latest
-VICTORIA_METRICS_IMAGE=victoriametrics/victoria-metrics:latest
-VICTORIA_LOGS_IMAGE=victoriametrics/victoria-logs:latest
-# MIGRATIONS_IMAGE=__REGISTRY__/migrations:prod
 PROD_PLATFORM=__PROD_PLATFORM__
 
-# Set KOMODO_MIGRATE_WEBHOOK_URL only after SQLDatabase declarations exist.
-# Migrations run on the Komodo server so Postgres stays private.
-APP_ID=__APP_ID__
-KOMODO_URL=__KOMODO_URL__
-KOMODO_WEBHOOK_PROVIDER=__KOMODO_WEBHOOK_PROVIDER__
-KOMODO_WEBHOOK_SECRET=__KOMODO_WEBHOOK_SECRET__
-KOMODO_MIGRATE_WEBHOOK_URL=__KOMODO_MIGRATE_WEBHOOK_URL__
-KOMODO_DEPLOY_WEBHOOK_URL=__KOMODO_DEPLOY_WEBHOOK_URL__
+# Local secrets.
+NECK_DASH_PASSWORD=
+NECK_DASH_PASSWORD_HASH=
+
+# Used only by pnpm deploy:komodo for authenticated Komodo listeners.
+KOMODO_WEBHOOK_SECRET=
+
+# pnpm komodo:setup asks for KOMODO_API_KEY / KOMODO_API_SECRET once and saves them locally.
+
+# Optional runtime overrides. Only add these after introducing matching Encore resources.
+# POSTGRES_PASSWORD=replace-generated-default
+# REDIS_PASSWORD=replace-generated-default
+# Add Encore secret env vars here when `pnpm infra:encore` reports them.

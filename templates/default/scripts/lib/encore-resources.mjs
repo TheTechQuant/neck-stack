@@ -1,6 +1,48 @@
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
+export function parseEncoreMetadataOutput(output) {
+  const source = stripAnsi(String(output || ""));
+  const start = source.indexOf("{");
+  if (start === -1) {
+    throw new Error("Encore metadata output did not contain a JSON object.");
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < source.length; i += 1) {
+    const ch = source[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === "\"") {
+      inString = true;
+    } else if (ch === "{") {
+      depth += 1;
+    } else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return JSON.parse(source.slice(start, i + 1));
+      }
+    }
+  }
+
+  throw new Error("Encore metadata output contained incomplete JSON.");
+}
+
+function stripAnsi(value) {
+  return value.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
+}
+
 function pathToString(routePath) {
   if (!routePath?.segments?.length) return "/";
 
@@ -173,7 +215,7 @@ async function loadEncoreMetadata(root) {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  return JSON.parse(output);
+  return parseEncoreMetadataOutput(output);
 }
 
 export async function discoverEncoreResources(backendDir = process.env.BACKEND_DIR || "backend") {

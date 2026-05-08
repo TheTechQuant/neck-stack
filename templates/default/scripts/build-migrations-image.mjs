@@ -2,9 +2,11 @@
 import { $ } from "zx";
 import chalk from "chalk";
 import { discoverEncoreResources } from "./lib/encore-resources.mjs";
+import { loadDotEnv } from "./lib/env.mjs";
 import { resolveProdPlatform } from "./lib/prod-platform.mjs";
 
 $.verbose = true;
+await loadDotEnv();
 
 const resources = await discoverEncoreResources("backend");
 if (resources.databases.length === 0) {

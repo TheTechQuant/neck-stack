@@ -52,7 +52,7 @@ pnpm create neck-stack my-app \
 
 Add `--komodo-api-key <key> --komodo-api-secret <secret> --komodo-auto-setup` to run Komodo setup from the initializer. It creates the shared ingress, creates the shared NECK Dash Resource Sync if missing, and creates/updates the app Resource Sync. Without API credentials, or without `--komodo-auto-setup`, the generated app still includes `pnpm komodo:setup` so you can run it later.
 
-By default the initializer attempts to register the existing backend template with Encore Cloud using `encore app init <app-id>`, then links the generated backend without scaffolding over it. If Encore Cloud auth is unavailable, the scaffold still finishes and writes the requested local app id into `backend/encore.app`; use `encore app link <app-id>` later if you want Cloud linking. Linked apps need a masked `ENCORE_CLOUD_AUTH_KEY` in CI so the Encore CLI can fetch development secrets during `encore test`.
+By default the initializer attempts to register the existing backend template with Encore Cloud using `encore app init <app-id>`, then links the generated backend without scaffolding over it. If Encore Cloud auth is unavailable, the scaffold still finishes and writes the requested local app id into `backend/encore.app`; use `encore app link <app-id>` later if you want Cloud linking. CI works without Encore Cloud credentials by temporarily running backend tests as a local-only Encore app. If you want CI to fetch Encore Cloud development secrets, set one masked secret: `ENCORE_CLOUD_AUTH_KEY`, `ENCORE_AUTH_CONFIG`, or `ENCORE_AUTH_TOKEN`.
 
 ## Production Shape
 

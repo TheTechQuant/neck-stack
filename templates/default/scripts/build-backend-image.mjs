@@ -2,8 +2,10 @@
 import { $, path } from "zx";
 import chalk from "chalk";
 import { resolveProdPlatform } from "./lib/prod-platform.mjs";
+import { loadDotEnv } from "./lib/env.mjs";
 
 $.verbose = true;
+await loadDotEnv();
 
 const image = process.env.BACKEND_IMAGE || "__REGISTRY__/backend:local";
 const { platform, os, arch } = resolveProdPlatform();

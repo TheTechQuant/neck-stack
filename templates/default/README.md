@@ -64,7 +64,7 @@ pnpm check
 git push -u origin main
 ```
 
-After the repo is pushed, `pnpm komodo:setup` can create the shared `neck-ingress` network/Caddy proxy, create the shared NECK Dash Resource Sync if missing, and create/update this app's Resource Sync. It asks for `KOMODO_API_KEY` and `KOMODO_API_SECRET` the first time and saves them to `.env`. Without API credentials, import `deploy/neckdash/resources.toml` once per server and this app's `deploy/komodo/resources.toml` manually. Set `KOMODO_WEBHOOK_SECRET` in CI, and set `ENCORE_CLOUD_AUTH_KEY` too if this app is linked to Encore Cloud.
+After the repo is pushed, `pnpm komodo:setup` can create the shared `neck-ingress` network/Caddy proxy, create the shared NECK Dash Resource Sync if missing, and create/update this app's Resource Sync. It asks for `KOMODO_API_KEY` and `KOMODO_API_SECRET` the first time and saves them to `.env`. Without API credentials, import `deploy/neckdash/resources.toml` once per server and this app's `deploy/komodo/resources.toml` manually. Set `KOMODO_WEBHOOK_SECRET` in CI. Encore Cloud credentials are optional: CI runs tests locally when they are absent, or uses `ENCORE_CLOUD_AUTH_KEY`, `ENCORE_AUTH_CONFIG`, or `ENCORE_AUTH_TOKEN` when you want Cloud-linked development secrets.
 
 Production is driven by Encore metadata:
 

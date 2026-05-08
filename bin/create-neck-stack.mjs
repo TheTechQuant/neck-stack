@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { parse } from "@bomb.sh/args";
-import { cancel, intro, isCancel, log, outro, text } from "@clack/prompts";
+import { cancel, confirm, intro, isCancel, log, outro, password, text } from "@clack/prompts";
 import bcrypt from "bcryptjs";
 import chalk from "chalk";
 
@@ -24,6 +24,8 @@ const stringOptions = [
   "prod-platform",
   "komodo-server",
   "komodo-url",
+  "komodo-api-key",
+  "komodo-api-secret",
   "komodo-webhook-secret",
   "komodo-deploy-webhook-url",
   "komodo-migrate-webhook-url",
@@ -40,6 +42,7 @@ const booleanOptions = [
   "force",
   "install",
   "git",
+  "komodo-auto-setup",
   "help",
   "version",
 ];
@@ -61,6 +64,8 @@ Options:
   --prod-platform <platform>            linux/amd64, linux/arm64, amd64, or arm64
   --komodo-server <name>                Komodo server resource name
   --komodo-url <url>                    Public Komodo Core URL; webhook URLs are derived from it
+  --komodo-api-key <key>                Komodo Core API key for automatic Resource Sync setup
+  --komodo-api-secret <secret>          Komodo Core API secret for automatic Resource Sync setup
   --komodo-webhook-secret <value>       Secret sent to Komodo GitLab/GitHub listener webhooks
   --komodo-deploy-webhook-url <url>     Optional explicit Komodo stack deploy webhook
   --komodo-migrate-webhook-url <url>    Optional explicit Komodo migration webhook
@@ -70,6 +75,7 @@ Options:
   --encore-app-id <slug>                Encore app id to register/link
   --encore-auth-key <key>               Encore auth key for non-browser app registration
   --encore-platform / --no-encore-platform
+  --komodo-auto-setup / --no-komodo-auto-setup
   --install / --no-install
   --git / --no-git
   --yes                                 Use defaults for missing values
@@ -121,6 +127,9 @@ function parseCliArgs(argv) {
       gitlabProject: parsed["gitlab-project"],
       help: parsed.help === true,
       install: parsed.install,
+      komodoApiKey: parsed["komodo-api-key"],
+      komodoApiSecret: parsed["komodo-api-secret"],
+      komodoAutoSetup: parsed["komodo-auto-setup"],
       komodoDeployWebhookUrl: parsed["komodo-deploy-webhook-url"],
       komodoMigrateWebhookUrl: parsed["komodo-migrate-webhook-url"],
       komodoServer: parsed["komodo-server"],
@@ -235,15 +244,37 @@ async function promptValue(label, value, fallback, yes) {
   return readPromptResult(answer) || fallback;
 }
 
-async function promptOptional(label, value, fallback, yes) {
+async function promptOptional(label, value, fallback, yes, ask = false) {
   if (value !== undefined && value !== "") return value;
-  if (yes) return fallback;
+  if (yes || !ask) return fallback;
   const answer = await text({
     defaultValue: fallback || undefined,
     message: label,
     placeholder: fallback || undefined,
   });
   return readPromptResult(answer) || fallback;
+}
+
+async function promptSecretOptional(label, value, fallback, yes, ask = false) {
+  if (value !== undefined && value !== "") return value;
+  if (yes || !ask) return fallback;
+  const answer = await password({
+    message: label,
+  });
+  return readPromptResult(answer) || fallback;
+}
+
+async function promptBoolean(label, initialValue, yes) {
+  if (yes) return initialValue;
+  const answer = await confirm({
+    initialValue,
+    message: label,
+  });
+  if (isCancel(answer)) {
+    cancel("Cancelled.");
+    process.exit(0);
+  }
+  return answer;
 }
 
 async function promptRequired(label) {
@@ -406,6 +437,7 @@ async function main() {
   intro("create-neck-stack");
 
   const yes = options.yes === true;
+  const wizard = !yes && !positionalName && !options.name;
   if (!yes) {
     section("Project");
   }
@@ -436,7 +468,7 @@ async function main() {
   const gitProvider = options.gitProvider || "gitlab.com";
   const gitAccount = options.gitAccount || "gitlab";
   const webhookProvider = listenerProvider(gitProvider);
-  const komodoUrl = normalizeBaseUrl(await promptOptional("Komodo Core URL", options.komodoUrl, "", yes));
+  const komodoUrl = normalizeBaseUrl(await promptOptional("Komodo Core URL", options.komodoUrl, "", yes, wizard));
   const defaultDeployWebhookUrl = komodoListenerUrl(
     komodoUrl,
     webhookProvider,
@@ -452,18 +484,41 @@ async function main() {
     options.komodoDeployWebhookUrl,
     defaultDeployWebhookUrl,
     yes,
+    wizard,
   );
   const komodoMigrateWebhookUrl = await promptOptional(
     "Komodo migration webhook URL",
     options.komodoMigrateWebhookUrl,
     defaultMigrateWebhookUrl,
     yes,
+    wizard,
   );
+  const askKomodoCredentials = wizard || options.komodoAutoSetup === true;
+  const komodoApiKey = await promptOptional(
+    "Komodo API key for automatic setup (optional)",
+    options.komodoApiKey || process.env.KOMODO_API_KEY,
+    "",
+    yes,
+    askKomodoCredentials,
+  );
+  const komodoApiSecret = await promptSecretOptional(
+    "Komodo API secret for automatic setup (optional)",
+    options.komodoApiSecret || process.env.KOMODO_API_SECRET,
+    "",
+    yes,
+    askKomodoCredentials,
+  );
+  let autoSetupKomodo = options.komodoAutoSetup !== undefined
+    ? options.komodoAutoSetup !== false
+    : String(process.env.KOMODO_AUTO_SETUP || "").toLowerCase() === "true";
+  if (!autoSetupKomodo && options.komodoAutoSetup === undefined && wizard && komodoUrl && komodoApiKey && komodoApiSecret) {
+    autoSetupKomodo = await promptBoolean("Run Komodo setup now? Repo must already be reachable by Komodo.", false, yes);
+  }
   const komodoWebhookSecret = options.komodoWebhookSecret || secretToken();
   const runDirectory = options.runDirectory || `/opt/stacks/${appSlug}`;
   const useEncorePlatform = options.encorePlatform !== false;
   const encoreAppId = options.encoreAppId || appSlug;
-  const encoreAuthKey = options.encoreAuthKey || process.env.ENCORE_AUTH_KEY || "";
+  const encoreAuthKey = options.encoreAuthKey || process.env.ENCORE_CLOUD_AUTH_KEY || process.env.ENCORE_AUTH_KEY || "";
   const shouldInstall = options.install !== false;
   const shouldGit = options.git !== false;
   const force = options.force === true;
@@ -486,7 +541,7 @@ async function main() {
     NECK_DASH_PASSWORD_HASH_DEFAULT: neckDashPasswordHash,
     NECK_DASH_PASSWORD_HASH_DEFAULT_COMPOSE: neckDashPasswordHash.replaceAll("$", "$$$$"),
     NECK_DASH_USER: neckDashUser,
-    ENCORE_AUTH_KEY_DEFAULT: secretToken(),
+    TRACE_AUTH_KEY_DEFAULT: secretToken(),
     DOMAIN: domain,
     REGISTRY: registry.replace(/\/+$/g, ""),
     PROD_PLATFORM: prodPlatform,
@@ -499,6 +554,9 @@ async function main() {
     KOMODO_WEBHOOK_SECRET: komodoWebhookSecret,
     KOMODO_DEPLOY_WEBHOOK_URL: komodoDeployWebhookUrl,
     KOMODO_MIGRATE_WEBHOOK_URL: komodoMigrateWebhookUrl,
+    KOMODO_API_KEY: komodoApiKey,
+    KOMODO_API_SECRET: komodoApiSecret,
+    KOMODO_AUTO_SETUP: String(autoSetupKomodo),
     RUN_DIRECTORY: runDirectory,
     CURRENT_DATE: new Date().toISOString().slice(0, 10),
     ENCORE_APP_CONFIG_ID: "",
@@ -526,6 +584,24 @@ async function main() {
     await $({ cwd: target })`pnpm infra:encore`;
     step("Generating API client and OpenAPI");
     await $({ cwd: target })`pnpm api:gen`;
+    if (autoSetupKomodo) {
+      if (!komodoUrl || !komodoApiKey || !komodoApiSecret) {
+        throw new Error("Komodo automatic setup requires --komodo-url, --komodo-api-key, and --komodo-api-secret.");
+      }
+      step("Setting up Komodo resources");
+      await $({
+        cwd: target,
+        env: {
+          ...process.env,
+          KOMODO_API_KEY: komodoApiKey,
+          KOMODO_API_SECRET: komodoApiSecret,
+          KOMODO_SERVER: komodoServer,
+          KOMODO_URL: komodoUrl,
+        },
+      })`pnpm komodo:setup`;
+    }
+  } else if (autoSetupKomodo) {
+    warn("Skipping Komodo automatic setup because --no-install was provided. Run `pnpm install:all && pnpm infra:encore && pnpm komodo:setup` inside the app.");
   }
 
   success(`Created ${appSlug} in ${target}`);
@@ -533,7 +609,7 @@ async function main() {
   if (!shouldInstall) console.log(`  ${chalk.cyan("pnpm dlx zx scripts/install.mjs")}`);
   console.log(`  ${chalk.cyan("pnpm check")}`);
   console.log(`  ${chalk.cyan("pnpm dev")}`);
-  outro("NECK Dash password and deploy defaults were written to .env.");
+  outro("Operator settings and local secrets were written to .env.");
 }
 
 main().catch((err) => {

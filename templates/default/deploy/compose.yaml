@@ -46,12 +46,18 @@ services:
     image: ${BACKEND_IMAGE:-__REGISTRY__/backend:prod}
     platform: ${PROD_PLATFORM:-__PROD_PLATFORM__}
     restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - -c
+      - unset ENCORE_INFRA_CONFIG_PATH; exec node --enable-source-maps /workspace/backend/.encore/build/combined/combined/main.mjs
     environment:
       PORT: 8080
-      ENCORE_AUTH_KEY: ${ENCORE_AUTH_KEY:-__ENCORE_AUTH_KEY_DEFAULT__}
+      ENCORE_RUNTIME_CONFIG_PATH: /encore/runtime.prod.pb
       VICTORIA_METRICS_REMOTE_WRITE_URL: ${VICTORIA_METRICS_REMOTE_WRITE_URL:-http://victoria-metrics:8428/api/v1/write?extra_label=app_id=__APP_ID__}
     expose:
       - "8080"
+    volumes:
+      - ./encore/runtime.prod.pb:/encore/runtime.prod.pb:ro
     networks:
       - default
       - neck-ingress

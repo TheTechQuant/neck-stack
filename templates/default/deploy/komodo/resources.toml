@@ -3,7 +3,7 @@
 name = "__APP_ID__"
 description = "NECK production stack for __APP_NAME__"
 tags = ["neck", "production"]
-deploy = true
+deploy = false
 
 [stack.config]
 server = "__KOMODO_SERVER__"
@@ -20,7 +20,6 @@ DOMAIN = __DOMAIN__
 NECK_INGRESS_NETWORK = neck-ingress
 NECK_DASH_USER = __NECK_DASH_USER__
 NECK_DASH_PASSWORD_HASH = __NECK_DASH_PASSWORD_HASH_DEFAULT__
-ENCORE_AUTH_KEY = __ENCORE_AUTH_KEY_DEFAULT__
 NUXT_PUBLIC_ENCORE_TOOLBAR = true
 NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME = production
 NUXT_PUBLIC_API_BASE_URL = /api
