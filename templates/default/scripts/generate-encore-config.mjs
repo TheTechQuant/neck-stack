@@ -8,7 +8,6 @@ const postgresUser = "__POSTGRES_USER__";
 const defaultPostgresPassword = "__POSTGRES_PASSWORD_DEFAULT__";
 const defaultRedisPassword = "__REDIS_PASSWORD_DEFAULT__";
 const domain = process.env.DOMAIN || "__DOMAIN__";
-const caddyAcmeEmail = process.env.CADDY_ACME_EMAIL || "__CADDY_ACME_EMAIL__";
 const neckDashUser = process.env.NECK_DASH_USER || "__NECK_DASH_USER__";
 const neckDashPasswordHash = process.env.NECK_DASH_PASSWORD_HASH || "__NECK_DASH_PASSWORD_HASH_DEFAULT__";
 const defaultEncoreAuthKey = "__ENCORE_AUTH_KEY_DEFAULT__";
@@ -207,7 +206,6 @@ function renderCompose() {
     restart: unless-stopped
     environment:
       DOMAIN: \${DOMAIN:-${domain}}
-      CADDY_ACME_EMAIL: \${CADDY_ACME_EMAIL:-${caddyAcmeEmail}}
       NECK_DASH_USER: \${NECK_DASH_USER:-${neckDashUser}}
       NECK_DASH_PASSWORD_HASH: ${composeEnv("NECK_DASH_PASSWORD_HASH", neckDashPasswordHash)}
     ports:
@@ -440,7 +438,6 @@ function komodoEnvLines() {
   const lines = [
     "APP_ENV = production",
     `DOMAIN = ${domain}`,
-    `CADDY_ACME_EMAIL = ${caddyAcmeEmail}`,
     `NECK_DASH_USER = ${neckDashUser}`,
     `NECK_DASH_PASSWORD_HASH = ${neckDashPasswordHash}`,
     `ENCORE_AUTH_KEY = ${defaultEncoreAuthKey}`,

@@ -43,7 +43,6 @@ For a mostly configured run:
 ```bash
 pnpm create neck-stack my-app \
   --domain app.example.com \
-  --caddy-email ops@example.com \
   --neckdash-user ops \
   --gitlab-project my-group/my-app \
   --registry registry.gitlab.com/my-group/my-app \

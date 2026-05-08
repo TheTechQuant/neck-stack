@@ -1,6 +1,5 @@
 APP_ENV=production
 DOMAIN=__DOMAIN__
-CADDY_ACME_EMAIL=__CADDY_ACME_EMAIL__
 
 # Caddy protects https://DOMAIN/__neck_dash with HTTP Basic Auth.
 NECK_DASH_USER=__NECK_DASH_USER__

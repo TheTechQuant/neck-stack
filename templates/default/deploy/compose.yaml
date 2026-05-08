@@ -7,7 +7,6 @@ services:
     restart: unless-stopped
     environment:
       DOMAIN: ${DOMAIN:-__DOMAIN__}
-      CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:-__CADDY_ACME_EMAIL__}
       NECK_DASH_USER: ${NECK_DASH_USER:-__NECK_DASH_USER__}
       NECK_DASH_PASSWORD_HASH: ${NECK_DASH_PASSWORD_HASH:-__NECK_DASH_PASSWORD_HASH_DEFAULT_COMPOSE__}
     ports:

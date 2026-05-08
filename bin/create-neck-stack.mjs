@@ -18,7 +18,6 @@ const stringOptions = [
   "domain",
   "neckdash-user",
   "neckdash-password",
-  "caddy-email",
   "gitlab-project",
   "registry",
   "prod-platform",
@@ -54,7 +53,6 @@ Options:
   --domain <domain>                     Public app domain; /api and /__neck_dash are routed on this host
   --neckdash-user <user>                Basic-auth user for NECK Dash
   --neckdash-password <value>           Basic-auth password for NECK Dash
-  --caddy-email <email>                 ACME email for Caddy certificates
   --gitlab-project <path>               GitLab project path, e.g. group/app
   --registry <registry>                 Container image registry/repository
   --prod-platform <platform>            linux/amd64, linux/arm64, amd64, or arm64
@@ -107,7 +105,6 @@ function parseCliArgs(argv) {
   return {
     positionalName: positional[0],
     options: {
-      caddyEmail: parsed["caddy-email"],
       domain: parsed.domain,
       encoreAppId: parsed["encore-app-id"],
       encoreAuthKey: parsed["encore-auth-key"],
@@ -350,7 +347,6 @@ async function main() {
     section("Domains");
   }
   const domain = await promptValue("App domain", options.domain || defaultDomain, yes);
-  const caddyAcmeEmail = await promptValue("Caddy ACME email", options.caddyEmail || `admin@${domain}`, yes);
   const neckDashUser = await promptValue("NECK Dash user for /__neck_dash", options.neckdashUser || "admin", yes);
 
   if (!yes) {
@@ -400,7 +396,6 @@ async function main() {
     NECK_DASH_PASSWORD_HASH_DEFAULT_COMPOSE: neckDashPasswordHash.replaceAll("$", "$$$$"),
     NECK_DASH_USER: neckDashUser,
     ENCORE_AUTH_KEY_DEFAULT: secretToken(),
-    CADDY_ACME_EMAIL: caddyAcmeEmail,
     DOMAIN: domain,
     REGISTRY: registry.replace(/\/+$/g, ""),
     PROD_PLATFORM: prodPlatform,
