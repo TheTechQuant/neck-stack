@@ -2,6 +2,8 @@
 
 Production deploys are designed for a server managed by Komodo.
 
+The server runs one shared Caddy Docker Proxy ingress on ports `80/443` and one shared NECK Dash observability stack. Each NECK app stack runs its own internal Caddy on the shared `neck-ingress` Docker network and declares its public domain through Docker labels. This lets multiple NECK apps share one server without port conflicts or duplicate dashboard/storage containers.
+
 ## Flow
 
 1. CI runs `pnpm check`.
@@ -21,6 +23,8 @@ NECK intentionally keeps deploy configuration compact:
 - `.env.example`: committed reference with the same keys.
 - `deploy/compose.yaml`: generated runtime stack.
 - `deploy/komodo/resources.toml`: generated Komodo import.
+- `deploy/neckdash/compose.yaml`: shared per-server NECK Dash plus Victoria storage stack.
+- `deploy/neckdash/resources.toml`: Komodo import for the shared server dashboard stack.
 - `deploy/encore/infra.prod.json`: generated Encore self-hosted infra config.
 - `deploy/encore/meta.json`: generated Encore metadata for NECK Dash catalog views.
 
@@ -28,7 +32,26 @@ There is no `infra.prod.example.json`. The generated `infra.prod.json` is explic
 
 ## Komodo
 
-Import `deploy/komodo/resources.toml` into Komodo. Regenerate it after backend infrastructure changes:
+Create the shared ingress network once on every Komodo server:
+
+```bash
+docker network create neck-ingress
+```
+
+Run the shared Caddy Docker Proxy once on the server:
+
+```bash
+docker run -d --name neck-ingress-caddy --restart unless-stopped \
+  --network neck-ingress \
+  -p 80:80 -p 443:443 \
+  -e CADDY_INGRESS_NETWORKS=neck-ingress \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -v neck_ingress_caddy_data:/data \
+  -v neck_ingress_caddy_config:/config \
+  lucaslorentz/caddy-docker-proxy:2.10-alpine
+```
+
+Import `deploy/neckdash/resources.toml` into Komodo once per server. Then import each app's `deploy/komodo/resources.toml`. Regenerate them after backend infrastructure changes:
 
 ```bash
 pnpm infra:encore
@@ -43,7 +66,7 @@ CronJobs become scheduled Komodo actions that run `docker compose run --rm cron-
 
 ## Runtime Services
 
-Caddy serves the Nuxt app on `DOMAIN` and proxies `/api/*` to the private Encore backend after stripping the `/api` prefix. The public frontend client uses `/api`; Nuxt server-side code can use `NUXT_API_INTERNAL_BASE_URL=http://backend:8080` inside the Compose network.
+The shared server Caddy receives public traffic on `DOMAIN` and forwards it to this app stack's internal Caddy through the `neck-ingress` network. The internal Caddy serves the Nuxt app and proxies `/api/*` to the private Encore backend after stripping the `/api` prefix. The public frontend client uses `/api`; Nuxt server-side code can use `NUXT_API_INTERNAL_BASE_URL=http://backend:8080` inside the Compose network.
 
 Services are provisioned only when used:
 
@@ -53,7 +76,7 @@ Services are provisioned only when used:
 - No `CronJob`: no cron runner actions.
 - `Bucket` resources are detected but not provisioned.
 
-NECK Dash always runs with the published `neckdash` and `neckdash-ui` images plus VictoriaTraces, VictoriaMetrics, and VictoriaLogs. That keeps observability storage separate from app Postgres and avoids copying dashboard source into application repos.
+NECK Dash does not run inside each app stack. The shared `neckdash` stack runs the published `neckdash` and `neckdash-ui` images plus VictoriaTraces, VictoriaMetrics, and VictoriaLogs. App stacks connect to it through `neck-ingress`, route `/__neck_dash` to it, and write metrics to shared VictoriaMetrics with `extra_label=app_id=__APP_ID__`.
 
 Object storage should be external. Use S3, Cloudflare R2, GCS, or another managed provider and wire the Encore infra config accordingly.
 
@@ -63,13 +86,16 @@ Generated Compose defaults let a new stack boot without hand-writing database/ca
 
 Relevant variables:
 
+- `NECK_INGRESS_NETWORK`, defaults to `neck-ingress`; every app on the same server should use the same value.
+- `NECKDASH_APPS_ROOT`, set on the shared `neckdash` stack; it should point at the parent directory containing app run directories so Dash can read `deploy/encore/meta.json` and `docs/openapi.json`.
+- `NECKDASH_TRACE_AUTH_KEYS`, set on the shared `neckdash` stack; use comma/newline-separated `app_id=key` entries when multiple apps have different `ENCORE_AUTH_KEY` values.
 - `POSTGRES_PASSWORD`, only when SQL databases exist.
 - `REDIS_PASSWORD`, only when cache exists.
 - Encore `secret(...)` declarations, by exact secret name.
 - `NECK_DASH_PASSWORD_HASH`, for `https://DOMAIN/__neck_dash`.
-- `ENCORE_AUTH_KEY`, declared in Encore infra as service auth and shared by the runtime trace signer plus NECK Dash receiver.
-- `VICTORIA_METRICS_REMOTE_WRITE_URL`, used by Encore's Prometheus remote-write metrics exporter. Defaults to the private VictoriaMetrics service.
-- `VICTORIA_LOGS_INSERT_URL` and `VICTORIA_LOGS_QUERY_URL`, used by NECK Dash for structured log ingestion and search. Defaults point at the private VictoriaLogs service.
+- `ENCORE_AUTH_KEY`, declared in Encore infra as service auth and used by the runtime trace signer.
+- `VICTORIA_METRICS_REMOTE_WRITE_URL`, used by Encore's Prometheus remote-write metrics exporter. The generated default points at shared VictoriaMetrics and adds `app_id` as an extra write label.
+- `VICTORIA_LOGS_INSERT_URL` and `VICTORIA_LOGS_QUERY_URL`, used by shared NECK Dash for structured log ingestion and search. Defaults point at the private VictoriaLogs service.
 
 To generate a new Caddy-compatible NECK Dash hash:
 
@@ -81,14 +107,16 @@ Set the output as `NECK_DASH_PASSWORD_HASH`.
 
 ## NECK Dash
 
-Caddy exposes `https://DOMAIN/__neck_dash` and protects the UI plus `/__neck_dash/api` with HTTP Basic Auth. The only exception is `/__neck_dash/api/trace`, which must remain reachable by backend trace exporters and is still validated by Encore trace auth:
+The shared server ingress exposes `https://DOMAIN/__neck_dash`, then the app's internal Caddy protects the UI plus `/__neck_dash/api` with HTTP Basic Auth. The only exception is `/__neck_dash/api/trace`, which must remain reachable by backend trace exporters and is still validated by Encore trace auth:
 
 - `NECK_DASH_USER`, default `admin`.
 - `NECK_DASH_PASSWORD_HASH`, generated at scaffold time.
 
-The generated Encore infra config enables the official Prometheus remote-write metrics provider with `VICTORIA_METRICS_REMOTE_WRITE_URL`. That path carries Encore runtime metrics such as request counters and memory gauges, plus any custom metrics declared with `encore.dev/metrics`. NECK Dash queries VictoriaMetrics for Insights, request metrics, runtime metrics, and custom metric samples.
+The generated Encore infra config enables the official Prometheus remote-write metrics provider with `VICTORIA_METRICS_REMOTE_WRITE_URL`. That path carries Encore runtime metrics such as request counters and memory gauges, plus any custom metrics declared with `encore.dev/metrics`. The default write URL adds `app_id=__APP_ID__`, allowing one VictoriaMetrics instance to store multiple apps while the dashboard scopes queries to the selected app.
 
-NECK Dash also ships a `/trace` ingestion adapter that validates Encore trace signatures, converts Encore trace streams to OpenTelemetry JSON, and forwards them to VictoriaTraces. Backends inside the generated Compose stack should post to `http://neckdash:8080/trace`; the equivalent single-domain route is `https://DOMAIN/__neck_dash/api/trace`. Structured `encore.dev/log` events in those trace streams are written once to VictoriaLogs as searchable fields with `trace_id` and `span_id` preserved for correlation. The Logs tab queries VictoriaLogs, and `/__neck_dash/api/logs/tail` proxies VictoriaLogs live tailing as NDJSON for terminal use.
+NECK Dash also ships a `/trace` ingestion adapter that validates Encore trace signatures, converts Encore trace streams to OpenTelemetry JSON, and forwards them to VictoriaTraces. Backends should post to `http://neckdash:8080/trace` on the shared Docker network; the equivalent single-domain route is `https://DOMAIN/__neck_dash/api/trace`. Structured `encore.dev/log` events in those trace streams are written once to VictoriaLogs as searchable fields with `app_id`, `trace_id`, and `span_id` preserved for correlation. The Logs tab queries VictoriaLogs, and `/__neck_dash/api/logs/tail` proxies VictoriaLogs live tailing as NDJSON for terminal use.
+
+The dashboard discovers app catalogs by scanning `NECKDASH_APPS_ROOT` for `*/deploy/encore/meta.json` and matching `docs/openapi.json` beside each app. It exposes an app picker and scopes Insights, traces, logs, metrics, Flow, Service Catalog, and OpenAPI views to the selected app.
 
 For high-volume apps, NECK Dash keeps exploratory reads bounded: trace listing defaults to the last hour and caps all-service fanout with `NECKDASH_TRACE_SERVICE_FANOUT_LIMIT`; log listing defaults to the last hour with a hard result limit; live log tailing requires at least one query, service, level, or trace-id filter.
 

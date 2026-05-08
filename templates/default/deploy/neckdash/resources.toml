@@ -1,0 +1,42 @@
+# Shared NECK Dash Komodo stack. Import once per server, not once per app.
+[[stack]]
+name = "neckdash"
+description = "Shared per-server NECK Dash and Victoria observability stack"
+tags = ["neck", "observability"]
+deploy = true
+
+[stack.config]
+server = "__KOMODO_SERVER__"
+project_name = "neckdash"
+run_directory = "__RUN_DIRECTORY__"
+file_paths = ["deploy/neckdash/compose.yaml"]
+git_provider = "__GIT_PROVIDER__"
+git_account = "__GIT_ACCOUNT__"
+repo = "__GITLAB_PROJECT__"
+branch = "main"
+environment = """
+NECK_INGRESS_NETWORK = neck-ingress
+NECKDASH_APPS_ROOT = /opt/stacks
+ENCORE_AUTH_KEY = __ENCORE_AUTH_KEY_DEFAULT__
+NECKDASH_TRACE_AUTH_KEYS = __APP_ID__=__ENCORE_AUTH_KEY_DEFAULT__
+NECKDASH_REQUIRE_TRACE_AUTH = true
+NECKDASH_TRACE_SERVICE_FANOUT_LIMIT = 32
+NUXT_APP_BASE_URL = /__neck_dash/
+NUXT_PUBLIC_NECKDASH_API_BASE_URL = /__neck_dash/api
+NUXT_NECKDASH_API_INTERNAL_BASE_URL = http://neckdash:8080
+VICTORIA_TRACES_OTLP_URL = http://victoria-traces:10428/insert/opentelemetry/v1/traces
+VICTORIA_TRACES_QUERY_URL = http://victoria-traces:10428/select/jaeger
+VICTORIA_TRACES_RETENTION = 30d
+VICTORIA_METRICS_QUERY_URL = http://victoria-metrics:8428/api/v1/query
+VICTORIA_METRICS_RETENTION = 90d
+VICTORIA_LOGS_INSERT_URL = http://victoria-logs:9428/insert/jsonline?_stream_fields=app_id,env_id,service,level&_time_field=timestamp&_msg_field=message
+VICTORIA_LOGS_QUERY_URL = http://victoria-logs:9428/select/logsql/query
+VICTORIA_LOGS_RETENTION = 30d
+PROD_PLATFORM = __PROD_PLATFORM__
+
+NECKDASH_IMAGE = ghcr.io/thetechquant/neck-stack/neckdash:latest
+NECKDASH_UI_IMAGE = ghcr.io/thetechquant/neck-stack/neckdash-ui:latest
+VICTORIA_TRACES_IMAGE = victoriametrics/victoria-traces:latest
+VICTORIA_METRICS_IMAGE = victoriametrics/victoria-metrics:latest
+VICTORIA_LOGS_IMAGE = victoriametrics/victoria-logs:latest
+"""

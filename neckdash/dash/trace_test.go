@@ -55,6 +55,18 @@ func TestValidateTraceAuthRequiresExpectedKeyID(t *testing.T) {
 	}
 }
 
+func TestValidateTraceAuthUsesAppSpecificKeys(t *testing.T) {
+	t.Setenv("ENCORE_AUTH_KEY", "fallback-secret")
+	t.Setenv("NECKDASH_TRACE_AUTH_KEYS", "billing=billing-secret,core=core-secret")
+	t.Setenv("NECKDASH_REQUIRE_TRACE_AUTH", "true")
+
+	req := signedTraceRequest(t, "/trace", "billing-secret")
+	req.Header.Set("X-Encore-App-ID", "billing")
+	if err := validateTraceAuth(req); err != nil {
+		t.Fatalf("validateTraceAuth rejected app-specific key: %v", err)
+	}
+}
+
 func signedTraceRequest(t *testing.T, path string, key string) *http.Request {
 	t.Helper()
 	return signedTraceRequestWithKeyID(t, path, key, 1)

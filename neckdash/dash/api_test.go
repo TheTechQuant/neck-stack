@@ -55,6 +55,15 @@ func TestVictoriaMetricsRangeQueryURL(t *testing.T) {
 	}
 }
 
+func TestMetricAppFilter(t *testing.T) {
+	if got := metricAppFilter("billing"); got != `{app_id="billing"}` {
+		t.Fatalf("filter = %q", got)
+	}
+	if got := mergeMetricFilter(metricAppFilter("billing"), `code!="ok"`); got != `{app_id="billing",code!="ok"}` {
+		t.Fatalf("merged filter = %q", got)
+	}
+}
+
 func TestCatalogFlowBuildsEncoreFlowModel(t *testing.T) {
 	meta := []byte(`{
 		"pkgs": [

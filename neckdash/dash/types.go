@@ -5,10 +5,29 @@ type HealthResponse struct {
 }
 
 type TraceListParams struct {
+	App     string `query:"app"`
 	Service string `query:"service"`
 	Search  string `query:"search"`
 	Limit   int    `query:"limit"`
 	Hours   int    `query:"hours"`
+}
+
+type AppParams struct {
+	App string `query:"app"`
+}
+
+type DashApp struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	MetaPath    string `json:"metaPath"`
+	OpenAPIPath string `json:"openapiPath"`
+	HasMeta     bool   `json:"hasMeta"`
+	HasOpenAPI  bool   `json:"hasOpenapi"`
+}
+
+type AppsResponse struct {
+	Apps       []DashApp `json:"apps"`
+	DefaultApp string    `json:"defaultApp"`
 }
 
 type TraceSummary struct {
@@ -37,6 +56,7 @@ type TraceDetailResponse struct {
 }
 
 type LogListParams struct {
+	App     string `query:"app"`
 	Query   string `query:"query"`
 	Service string `query:"service"`
 	Level   string `query:"level"`
@@ -62,11 +82,13 @@ type LogListResponse struct {
 }
 
 type MetricsParams struct {
-	Hours int `query:"hours"`
+	Hours int    `query:"hours"`
+	App   string `query:"app"`
 }
 
 type InsightsParams struct {
 	Range string `query:"range"`
+	App   string `query:"app"`
 }
 
 type InsightsPoint struct {
@@ -169,6 +191,7 @@ type FlowResponse struct {
 }
 
 type CatalogResponse struct {
+	AppID       string           `json:"appId"`
 	MetaJSON    string           `json:"metaJson"`
 	OpenAPIJSON string           `json:"openapiJson"`
 	Services    []CatalogService `json:"services"`

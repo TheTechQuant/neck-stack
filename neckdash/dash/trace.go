@@ -213,9 +213,9 @@ func validateTraceAuth(req *http.Request) error {
 	if strings.EqualFold(os.Getenv("NECKDASH_REQUIRE_TRACE_AUTH"), "false") {
 		return nil
 	}
-	key := os.Getenv("ENCORE_AUTH_KEY")
+	key := traceAuthKeyForApp(req.Header.Get("X-Encore-App-ID"))
 	if key == "" {
-		return fmt.Errorf("ENCORE_AUTH_KEY is not configured")
+		return fmt.Errorf("trace auth key is not configured")
 	}
 	dateHeader := req.Header.Get("Date")
 	requestDate, err := http.ParseTime(dateHeader)
@@ -238,6 +238,25 @@ func validateTraceAuth(req *http.Request) error {
 		return fmt.Errorf("invalid trace signature")
 	}
 	return nil
+}
+
+func traceAuthKeyForApp(appID string) string {
+	appID = strings.TrimSpace(appID)
+	for _, entry := range strings.FieldsFunc(os.Getenv("NECKDASH_TRACE_AUTH_KEYS"), func(ch rune) bool {
+		return ch == ',' || ch == '\n'
+	}) {
+		key, value, ok := strings.Cut(strings.TrimSpace(entry), "=")
+		if !ok {
+			key, value, ok = strings.Cut(strings.TrimSpace(entry), ":")
+		}
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(key) == appID {
+			return strings.TrimSpace(value)
+		}
+	}
+	return os.Getenv("ENCORE_AUTH_KEY")
 }
 
 func convertToOTLP(meta traceRequestMeta, events []*tracepb2.TraceEvent) (otlpRequest, []spanBuilder, []victoriaLogEntry, error) {

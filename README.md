@@ -16,7 +16,7 @@ The result is an opinionated setup in which things that you can get wrong are mi
 
 - `frontend`: Nuxt app with `@nuxt/scripts`, Encore Toolbar support, and generated Encore client usage.
 - `backend`: Encore.ts app with Worker Pooling, CORS, structured logging, tests, OpenAPI docs, and a starter Streaming API.
-- `deploy`: generated Docker Compose, Caddy config, Encore self-hosted infra config, migrations image, and Komodo resources.
+- `deploy`: generated app Compose, shared NECK Dash Compose, Caddy config, Encore self-hosted infra config, migrations image, and Komodo resources.
 - `scripts`: zx scripts for dev, checks, API generation, deployment, infra generation, and migrations.
 - `.gitlab-ci.yml`: GitLab pipeline for validate, image build, migration, and Komodo deploy. (NECK is optimized for gitlab repos)
 - `.github/workflows/ci.yml`: GitHub Actions version of the same flow.
@@ -54,21 +54,25 @@ By default the initializer registers the existing backend template with Encore C
 
 ## Production Shape
 
-The generated app uses one public domain. Caddy serves Nuxt on `DOMAIN`, proxies `/api/*` to Encore, serves NECK Dash at `/__neck_dash`, and proxies NECK Dash API calls at `/__neck_dash/api`. Trace ingestion stays reachable at `/__neck_dash/api/trace` without dashboard Basic Auth because it uses Encore trace signatures. The production backend is built with Encore's normal self-hosted Docker path using `deploy/encore/infra.prod.json`.
+The generated app uses one public domain. Caddy serves Nuxt on `DOMAIN`, proxies `/api/*` to Encore, serves the shared NECK Dash UI at `/__neck_dash`, and proxies NECK Dash API calls at `/__neck_dash/api`. Trace ingestion stays reachable at `/__neck_dash/api/trace` without dashboard Basic Auth because it uses Encore trace signatures. The production backend is built with Encore's normal self-hosted Docker path using `deploy/encore/infra.prod.json`.
+
+Production hosting is multi-app by default: a single server-level Caddy Docker Proxy binds `80/443`, while each app stack attaches an internal Caddy service to the shared `neck-ingress` Docker network. That keeps per-app Compose projects isolated and lets several NECK apps share one Komodo server.
+
+NECK Dash is also one per server. Import `deploy/neckdash/resources.toml` once on a Komodo server, then import each app's `deploy/komodo/resources.toml` separately. The shared dashboard discovers app catalogs from `NECKDASH_APPS_ROOT`, shows an app picker, and scopes traces/logs/metrics/catalog/Flow to the selected app. App metrics are written to shared VictoriaMetrics with `extra_label=app_id=<app>`.
 
 NECK Dash stores observability data in VictoriaTraces, VictoriaMetrics, and VictoriaLogs. The generated Encore infra config uses the official Prometheus remote-write metrics primitive, so Encore's built-in metrics and app-defined custom metrics flow through the runtime exporter. Structured `encore.dev/log` events are extracted from Encore traces, indexed in VictoriaLogs, and kept correlated through `trace_id` and `span_id`. App-level Postgres databases, Redis, NSQ, and cron runner actions are generated only when Encore metadata reports matching backend resources. Object storage is deliberately external: use S3, Cloudflare R2, GCS, or another managed storage provider instead of adding MinIO to the default Komodo stack.
 
-The generated `ENCORE_AUTH_KEY` is declared in Encore infra as service auth and is also mounted into NECK Dash for trace ingestion validation.
+The generated `ENCORE_AUTH_KEY` is declared in Encore infra as service auth. The shared dashboard validates trace ingestion with `NECKDASH_TRACE_AUTH_KEYS`, a comma/newline-separated `app_id=key` list, with `ENCORE_AUTH_KEY` as the fallback.
 
 Encore SQL migrations are run with `golang-migrate/migrate` after images are built and before the stack restarts. Postgres and Redis stay private to the Compose network. Generated passwords let the first stack boot without manual secret work, and every generated password can be overridden in Komodo or server `.env` before volumes are initialized.
 
 Production image architecture is a first-class setting. Use `--prod-platform linux/arm64` at scaffold time, or override `PROD_PLATFORM` in CI/Komodo later; backend builds map it to Encore `--os/--arch`, and frontend/migration images use Docker `--platform`.
 
-The production observability entrypoint is `https://DOMAIN/__neck_dash`. It receives official Encore metrics through VictoriaMetrics remote write and shows Insights, request metrics, custom metrics, runtime metrics, searchable structured logs, Flow-style dependencies, the service catalog, and OpenAPI docs. The NECK Dash sidecar also includes an Encore trace ingestion adapter at the private `http://neckdash:8080/trace` path and the single-domain `/__neck_dash/api/trace` path.
+The production observability entrypoint is `https://DOMAIN/__neck_dash`. It receives official Encore metrics through VictoriaMetrics remote write and shows Insights, request metrics, custom metrics, runtime metrics, searchable structured logs, Flow-style dependencies, the service catalog, and OpenAPI docs. The shared NECK Dash service also includes an Encore trace ingestion adapter at the private `http://neckdash:8080/trace` path and the single-domain `/__neck_dash/api/trace` path.
 
 High-volume installs are treated as the normal case: Insights and metrics use aggregate time-series queries, trace lists are time-bounded and fanout-limited across services, direct trace-id searches use the trace lookup API, log searches are limited by time and row count, and live log tailing requires a filter before streaming.
 
-Generated deployment config has one source of truth: `pnpm infra:encore` writes `deploy/encore/infra.prod.json`, `deploy/encore/meta.json`, `deploy/compose.yaml`, and `deploy/komodo/resources.toml` from `encore debug meta -f json`. There is no source-scan fallback; invalid Encore metadata should fail loudly.
+Generated deployment config has one source of truth: `pnpm infra:encore` writes `deploy/encore/infra.prod.json`, `deploy/encore/meta.json`, `deploy/compose.yaml`, `deploy/komodo/resources.toml`, and the shared `deploy/neckdash/*` files from `encore debug meta -f json`. There is no source-scan fallback; invalid Encore metadata should fail loudly.
 
 CI deploys can be configured with a single public Komodo Core URL. The generated deploy script derives deterministic GitLab/GitHub listener URLs from the app id and sends the Komodo webhook secret header, while still allowing explicit webhook URL overrides for custom setups.
 

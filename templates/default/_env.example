@@ -1,16 +1,18 @@
 APP_ENV=production
 DOMAIN=__DOMAIN__
+NECK_INGRESS_NETWORK=neck-ingress
 
 # Caddy protects https://DOMAIN/__neck_dash with HTTP Basic Auth.
 NECK_DASH_USER=__NECK_DASH_USER__
 NECK_DASH_PASSWORD=__NECK_DASH_PASSWORD_DEFAULT__
 NECK_DASH_PASSWORD_HASH='__NECK_DASH_PASSWORD_HASH_DEFAULT__'
-NECKDASH_REQUIRE_TRACE_AUTH=true
-NECKDASH_TRACE_SERVICE_FANOUT_LIMIT=32
 ENCORE_AUTH_KEY=__ENCORE_AUTH_KEY_DEFAULT__
 
-NUXT_PUBLIC_API_BASE_URL=/api
-NUXT_API_INTERNAL_BASE_URL=http://backend:8080
+# Shared per-server NECK Dash. Import deploy/neckdash/resources.toml once per Komodo server.
+NECKDASH_APPS_ROOT=/opt/stacks
+NECKDASH_TRACE_AUTH_KEYS=__APP_ID__=__ENCORE_AUTH_KEY_DEFAULT__
+NECKDASH_REQUIRE_TRACE_AUTH=true
+NECKDASH_TRACE_SERVICE_FANOUT_LIMIT=32
 NUXT_APP_BASE_URL=/__neck_dash/
 NUXT_PUBLIC_NECKDASH_API_BASE_URL=/__neck_dash/api
 NUXT_NECKDASH_API_INTERNAL_BASE_URL=http://neckdash:8080
@@ -18,11 +20,14 @@ VICTORIA_TRACES_OTLP_URL=http://victoria-traces:10428/insert/opentelemetry/v1/tr
 VICTORIA_TRACES_QUERY_URL=http://victoria-traces:10428/select/jaeger
 VICTORIA_TRACES_RETENTION=30d
 VICTORIA_METRICS_QUERY_URL=http://victoria-metrics:8428/api/v1/query
-VICTORIA_METRICS_REMOTE_WRITE_URL=http://victoria-metrics:8428/api/v1/write
 VICTORIA_METRICS_RETENTION=90d
 VICTORIA_LOGS_INSERT_URL=http://victoria-logs:9428/insert/jsonline?_stream_fields=app_id,env_id,service,level&_time_field=timestamp&_msg_field=message
 VICTORIA_LOGS_QUERY_URL=http://victoria-logs:9428/select/logsql/query
 VICTORIA_LOGS_RETENTION=30d
+
+NUXT_PUBLIC_API_BASE_URL=/api
+NUXT_API_INTERNAL_BASE_URL=http://backend:8080
+VICTORIA_METRICS_REMOTE_WRITE_URL=http://victoria-metrics:8428/api/v1/write?extra_label=app_id=__APP_ID__
 PUBLIC_WEB_URL=https://__DOMAIN__
 NUXT_PUBLIC_ENCORE_TOOLBAR=true
 NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME=production

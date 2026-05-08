@@ -6,7 +6,7 @@ NECK app: Nuxt.js frontend, Encore.ts backend, Caddy ingress, and Komodo deploym
 
 - `frontend`: Nuxt UI. Frontend API access should go through the generated Encore client.
 - `backend`: Encore.ts services, tests, CORS, Worker Pooling, structured logging, crons, streaming, and infrastructure declarations.
-- `deploy`: Caddy, generated Compose, Encore infra config, Komodo resources, and migration image.
+- `deploy`: Caddy, generated app Compose, shared NECK Dash Compose, Encore infra config, Komodo resources, and migration image.
 - `scripts`: zx scripts for install, dev, checks, builds, API generation, migrations, and Komodo deploy.
 - `docs`: generated OpenAPI plus project docs.
 
@@ -59,11 +59,12 @@ pnpm deploy:komodo
 Production is driven by Encore metadata:
 
 - Caddy serves Nuxt on `DOMAIN` and proxies `/api/*` to Encore, so the frontend and backend share one public host.
-- NECK Dash is served at `/__neck_dash` on the same `DOMAIN`, with its API at `/__neck_dash/api` and Basic Auth protecting every dashboard/API route except trace ingestion.
+- A single shared NECK Dash stack runs once per Komodo server. This app's Caddy serves it at `/__neck_dash`, with its API at `/__neck_dash/api` and Basic Auth protecting every dashboard/API route except trace ingestion.
 - Backend traces are received at `http://neckdash:8080/trace` inside Compose; the equivalent single-domain ingestion path is `https://DOMAIN/__neck_dash/api/trace` and is protected by Encore trace auth, not Basic Auth.
-- `ENCORE_AUTH_KEY` is declared in the generated Encore infra config and shared with NECK Dash, so service auth and trace ingestion use the same generated deployment secret.
-- NECK Dash uses published `ghcr.io/thetechquant/neck-stack/neckdash` and `ghcr.io/thetechquant/neck-stack/neckdash-ui` images.
-- VictoriaTraces is included for trace storage; VictoriaMetrics stores Encore runtime metrics and custom app metrics through Encore's Prometheus remote-write primitive; VictoriaLogs stores structured `encore.dev/log` events extracted from traces.
+- `ENCORE_AUTH_KEY` is declared in the generated Encore infra config. Shared NECK Dash validates trace ingestion with `NECKDASH_TRACE_AUTH_KEYS` entries such as `__APP_ID__=secret`.
+- NECK Dash uses published `ghcr.io/thetechquant/neck-stack/neckdash` and `ghcr.io/thetechquant/neck-stack/neckdash-ui` images from the shared server stack.
+- VictoriaTraces stores traces; VictoriaMetrics stores Encore runtime metrics and custom app metrics through Encore's Prometheus remote-write primitive; VictoriaLogs stores structured `encore.dev/log` events extracted from traces.
+- `NECK_INGRESS_NETWORK` defaults to `neck-ingress`; it is the shared Docker network used by the server-level Caddy ingress so multiple apps can run on one host.
 - `SQLDatabase` declarations add private Postgres with `encoredotdev/postgres` plus app migrations.
 - `CacheCluster` declarations add private Redis.
 - `Topic` and `Subscription` declarations add NSQ.
@@ -71,7 +72,7 @@ Production is driven by Encore metadata:
 - `secret(...)` declarations become required environment entries.
 - `Bucket` declarations are detected but not provisioned; use external S3/R2/GCS.
 
-`pnpm infra:encore` is the only source of generated production config. It reads `encore debug meta -f json` and writes `deploy/encore/infra.prod.json`, `deploy/encore/meta.json`, `deploy/compose.yaml`, and `deploy/komodo/resources.toml`; there is no source-scan fallback or separate static example infra file to keep in sync.
+`pnpm infra:encore` is the only source of generated production config. It reads `encore debug meta -f json` and writes `deploy/encore/infra.prod.json`, `deploy/encore/meta.json`, `deploy/compose.yaml`, `deploy/komodo/resources.toml`, and `deploy/neckdash/*`; there is no source-scan fallback or separate static example infra file to keep in sync.
 
 GitLab and GitHub CI both run validate, image build, migration, and Komodo deploy stages. They generate the frontend client/OpenAPI before frontend builds and trigger migrations after images are built but before the Komodo stack deploy webhook. If `KOMODO_URL` is configured, CI derives Komodo listener URLs from the app id; keep `KOMODO_WEBHOOK_SECRET` in CI secrets so those calls are authenticated.
 
@@ -81,7 +82,9 @@ See [docs/deployment.md](docs/deployment.md) for CI variables, Komodo setup, das
 
 ## NECK Dash
 
-`https://DOMAIN/__neck_dash` is the default production observability UI. The backend exports Encore metrics to VictoriaMetrics with the official Prometheus remote-write infra primitive. NECK Dash queries Insights, built-in metrics, and custom metrics from VictoriaMetrics, structured logs from VictoriaLogs, and reads flow, service catalog, and OpenAPI data from `/__neck_dash/api`. Trace ingestion is available privately at `http://neckdash:8080/trace` and publicly at `/__neck_dash/api/trace`; both paths rely on Encore trace signatures.
+`https://DOMAIN/__neck_dash` is the default production observability UI. Import `deploy/neckdash/resources.toml` once per server, then import this app's `deploy/komodo/resources.toml`. The dashboard discovers apps from `NECKDASH_APPS_ROOT`, provides an app picker, and scopes traces/logs/metrics/Flow/catalog to the selected app.
+
+The backend exports Encore metrics to VictoriaMetrics with the official Prometheus remote-write infra primitive and an `app_id` write label. NECK Dash queries Insights, built-in metrics, and custom metrics from VictoriaMetrics, structured logs from VictoriaLogs, and reads flow, service catalog, and OpenAPI data from `/__neck_dash/api`. Trace ingestion is available privately at `http://neckdash:8080/trace` and publicly at `/__neck_dash/api/trace`; both paths rely on Encore trace signatures.
 
 High-volume installs are expected: trace lists are time-bounded and service-fanout limited, direct trace-id searches use a direct lookup, log searches are time/row limited, and live log tailing requires a filter.
 

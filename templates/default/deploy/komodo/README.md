@@ -1,12 +1,14 @@
 # Komodo
 
-`resources.toml` declares the production stack and any generated Encore migration/cron `Action` resources. Import it with a Komodo Resource Sync or paste the resources into Komodo directly.
+`resources.toml` declares this app's production stack and any generated Encore migration/cron `Action` resources. Import it with a Komodo Resource Sync or paste the resources into Komodo directly.
 
 Run `pnpm infra:encore` after backend infrastructure changes. That regenerates this file from Encore metadata, so Postgres, Redis, NSQ, migrations, and cron-runner resources are present only when the backend declares matching Encore resources.
 
 `deploy/encore/infra.prod.json`, `deploy/compose.yaml`, and this file are generated together. There is no static Encore infra example file; generated output is the source of truth.
 
-NECK Dash is always included through published images. VictoriaMetrics stores Encore remote-write runtime metrics and custom app metrics. VictoriaTraces stores traces, and VictoriaLogs stores structured `encore.dev/log` events extracted from those traces. App Postgres remains optional and is not used for observability storage.
+The app stack expects a shared server ingress named `neck-ingress`. Run one Caddy Docker Proxy on the server and create the network once with `docker network create neck-ingress`. Each app then contributes only Docker labels and an internal Caddy service, so multiple NECK apps can share the same server and ports `80/443`.
+
+NECK Dash is a separate shared stack. Import `deploy/neckdash/resources.toml` once per server; do not import one dashboard stack for every app. It runs the published dashboard images plus VictoriaMetrics, VictoriaTraces, and VictoriaLogs. This app writes metrics to the shared VictoriaMetrics service with an `app_id` label and routes `/__neck_dash` to the shared dashboard over `neck-ingress`.
 
 When SQL databases exist, the migration action is intentionally separate from stack deploy. With `KOMODO_URL` set, CI derives the generated `__APP_ID__-migrate` action webhook and the stack deploy webhook automatically. Override `KOMODO_MIGRATE_WEBHOOK_URL` or `KOMODO_DEPLOY_WEBHOOK_URL` only if you renamed resources or use a custom listener path. Without SQL databases, CI skips the migration step.
 
@@ -18,4 +20,4 @@ The generated GitLab CI can use `KOMODO_URL` plus `KOMODO_WEBHOOK_SECRET` direct
 
 GitHub Actions uses the same deploy script and expects equivalent repository secrets. See `docs/deployment.md`.
 
-The Caddy service uses a single public host from `DOMAIN`: Nuxt at `/`, Encore at `/api`, and NECK Dash at `/__neck_dash` with its API at `/__neck_dash/api`. Only `/__neck_dash/api/trace` bypasses dashboard Basic Auth so backend trace exporters can post there; NECK Dash still validates Encore trace auth. Override `NECK_DASH_PASSWORD_HASH` before deploy if you do not want to use the scaffolded first password.
+The internal Caddy service uses a single public host from `DOMAIN`: Nuxt at `/`, Encore at `/api`, and shared NECK Dash at `/__neck_dash` with its API at `/__neck_dash/api`. Only `/__neck_dash/api/trace` bypasses dashboard Basic Auth so backend trace exporters can post there; NECK Dash still validates Encore trace auth. Add this app's `APP_ID=ENCORE_AUTH_KEY` pair to the shared stack's `NECKDASH_TRACE_AUTH_KEYS` when it differs from the first app. Override `NECK_DASH_PASSWORD_HASH` before deploy if you do not want to use the scaffolded first password.

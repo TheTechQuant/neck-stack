@@ -19,7 +19,12 @@ const emit = defineEmits<{
   selectTrace: [traceId: string];
 }>();
 
+const props = defineProps<{
+  appId?: string;
+}>();
+
 const api = useDashApi();
+const config = useRuntimeConfig();
 const query = ref("");
 const service = ref("");
 const level = ref("");
@@ -32,6 +37,7 @@ const { data: logsData, pending, refresh } = await useAsyncData(
   () => api<LogListResponse>("/logs", {
     query: {
       query: query.value,
+      app: props.appId || "",
       service: service.value,
       level: level.value,
       traceId: traceId.value,
@@ -39,7 +45,7 @@ const { data: logsData, pending, refresh } = await useAsyncData(
       limit: 200,
     },
   }),
-  { watch: [query, service, level, traceId, hours] },
+  { watch: [() => props.appId, query, service, level, traceId, hours] },
 );
 
 const logs = computed(() => logsData.value?.logs ?? []);
@@ -48,12 +54,13 @@ const errors = computed(() => logs.value.filter((log) => ["error", "warn"].inclu
 const hasTailFilter = computed(() => Boolean(query.value || service.value || level.value || traceId.value));
 const tailURL = computed(() => {
   const params = new URLSearchParams();
+  if (props.appId) params.set("app", props.appId);
   if (query.value) params.set("query", query.value);
   if (service.value) params.set("service", service.value);
   if (level.value) params.set("level", level.value);
   if (traceId.value) params.set("traceId", traceId.value);
   params.set("start_offset", "10m");
-  return `/api/logs/tail?${params.toString()}`;
+  return `${config.public.neckdashApiBaseUrl || "/api"}/logs/tail?${params.toString()}`;
 });
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined;

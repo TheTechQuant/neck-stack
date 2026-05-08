@@ -149,15 +149,26 @@ type CatalogService = {
 };
 
 type CatalogResponse = {
+  appId: string;
   metaJson: string;
   openapiJson: string;
   services: CatalogService[];
+};
+
+type DashApp = {
+  id: string;
+  name: string;
+  metaPath: string;
+  openapiPath: string;
+  hasMeta: boolean;
+  hasOpenapi: boolean;
 };
 
 const tabs = ["Insights", "Traces", "Logs", "Metrics", "Flow", "Catalog", "Settings"] as const;
 const insightRanges = ["10m", "1h", "8h", "24h", "3d", "7d"] as const;
 const activeTab = ref<(typeof tabs)[number]>("Insights");
 const api = useDashApi();
+const selectedAppID = ref("");
 const insightRange = ref<(typeof insightRanges)[number]>("24h");
 const traceHours = ref(1);
 const search = ref("");
@@ -167,10 +178,25 @@ const selectedEvent = ref<TraceEvent | null>(null);
 const selectedCatalogServiceName = ref("");
 const selectedCatalogEndpointKey = ref("");
 
+const { data: appsData, refresh: refreshApps } = await useAsyncData(
+  "neckdash-apps",
+  () => api<{ apps: DashApp[]; defaultApp: string }>("/apps"),
+);
+
+const apps = computed(() => appsData.value?.apps ?? []);
+const selectedApp = computed(() => apps.value.find((app) => app.id === selectedAppID.value) ?? apps.value[0]);
+const appQuery = computed(() => selectedApp.value?.id || "");
+
+watchEffect(() => {
+  if (!selectedAppID.value && appsData.value?.defaultApp) {
+    selectedAppID.value = appsData.value.defaultApp;
+  }
+});
+
 const { data: insightsData, refresh: refreshInsights } = await useAsyncData(
   "neckdash-insights",
-  () => api<InsightsResponse>("/insights", { query: { range: insightRange.value } }),
-  { watch: [insightRange] },
+  () => api<InsightsResponse>("/insights", { query: { range: insightRange.value, app: appQuery.value } }),
+  { watch: [insightRange, selectedAppID] },
 );
 
 const { data: traceList, refresh: refreshTraces } = await useAsyncData(
@@ -178,17 +204,19 @@ const { data: traceList, refresh: refreshTraces } = await useAsyncData(
   () => api<{ traces: TraceSummary[] }>("/traces", {
     query: {
       limit: 50,
+      app: appQuery.value,
       service: service.value,
       search: search.value,
       hours: traceHours.value,
     },
   }),
-  { watch: [service, search, traceHours] },
+  { watch: [selectedAppID, service, search, traceHours] },
 );
 
 const { data: traceServicesData, refresh: refreshTraceServices } = await useAsyncData(
   "neckdash-trace-services",
-  () => api<{ services: string[] }>("/traces/services"),
+  () => api<{ services: string[] }>("/traces/services", { query: { app: appQuery.value } }),
+  { watch: [selectedAppID] },
 );
 
 const traces = computed(() => traceList.value?.traces ?? []);
@@ -211,22 +239,26 @@ const { data: traceDetail, refresh: refreshTraceDetail } = await useAsyncData(
 
 const { data: metricsData, refresh: refreshMetrics } = await useAsyncData(
   "neckdash-metrics",
-  () => api<{ windowHours: number; services: ServiceMetric[]; runtime: MetricSample[] }>("/metrics/summary", { query: { hours: 24 } }),
+  () => api<{ windowHours: number; services: ServiceMetric[]; runtime: MetricSample[] }>("/metrics/summary", { query: { hours: 24, app: appQuery.value } }),
+  { watch: [selectedAppID] },
 );
 
 const { data: customMetricsData, refresh: refreshCustomMetrics } = await useAsyncData(
   "neckdash-custom-metrics",
-  () => api<{ windowHours: number; definitions: MetricDefinition[]; samples: MetricSample[] }>("/metrics/custom", { query: { hours: 24 } }),
+  () => api<{ windowHours: number; definitions: MetricDefinition[]; samples: MetricSample[] }>("/metrics/custom", { query: { hours: 24, app: appQuery.value } }),
+  { watch: [selectedAppID] },
 );
 
 const { data: flowData, refresh: refreshFlow } = await useAsyncData(
   "neckdash-flow",
-  () => api<{ nodes: FlowNode[]; edges: FlowEdge[] }>("/flow"),
+  () => api<{ nodes: FlowNode[]; edges: FlowEdge[] }>("/flow", { query: { app: appQuery.value } }),
+  { watch: [selectedAppID] },
 );
 
 const { data: catalogData, refresh: refreshCatalog } = await useAsyncData(
   "neckdash-catalog",
-  () => api<CatalogResponse>("/catalog"),
+  () => api<CatalogResponse>("/catalog", { query: { app: appQuery.value } }),
+  { watch: [selectedAppID] },
 );
 
 const { data: samplingData, refresh: refreshSampling } = await useAsyncData(
@@ -302,9 +334,17 @@ const selectedCatalogEndpoint = computed(() => {
 });
 
 watchEffect(() => {
-  if (!selectedCatalogServiceName.value && catalogServices.value[0]) {
+  if (!catalogServices.value.some((item) => item.name === selectedCatalogServiceName.value) && catalogServices.value[0]) {
     selectedCatalogServiceName.value = catalogServices.value[0].name;
   }
+});
+
+watch(selectedAppID, () => {
+  service.value = "";
+  selectedTraceID.value = "";
+  selectedEvent.value = null;
+  selectedCatalogServiceName.value = "";
+  selectedCatalogEndpointKey.value = "";
 });
 
 watchEffect(() => {
@@ -437,6 +477,7 @@ function prettyJSON(value: string) {
 }
 
 function refreshActive() {
+  refreshApps();
   if (activeTab.value === "Insights") refreshInsights();
   if (activeTab.value === "Traces") {
     refreshTraceServices();
@@ -518,6 +559,11 @@ onBeforeUnmount(stopFlowRefresh);
           <select v-if="activeTab === 'Insights'" v-model="insightRange" class="input compact">
             <option v-for="range in insightRanges" :key="range" :value="range">
               {{ rangeLabel(range) }}
+            </option>
+          </select>
+          <select v-if="apps.length > 1" v-model="selectedAppID" class="input compact">
+            <option v-for="app in apps" :key="app.id" :value="app.id">
+              {{ app.name || app.id }}
             </option>
           </select>
           <select v-if="activeTab === 'Traces'" v-model="service" class="input">
@@ -736,7 +782,7 @@ onBeforeUnmount(stopFlowRefresh);
       </section>
 
       <section v-else-if="activeTab === 'Logs'">
-        <LogsPanel @select-trace="openTraceFromLog" />
+        <LogsPanel :app-id="appQuery" @select-trace="openTraceFromLog" />
       </section>
 
       <section v-else-if="activeTab === 'Metrics'" class="stack">
@@ -862,7 +908,7 @@ onBeforeUnmount(stopFlowRefresh);
             <span class="pill">{{ svc.endpoints.length }}</span>
           </button>
           <div v-if="catalogServices.length === 0" class="empty">
-            No catalog metadata mounted.
+            No catalog metadata found for this app.
           </div>
         </div>
 

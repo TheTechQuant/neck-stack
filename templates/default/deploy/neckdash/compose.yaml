@@ -1,0 +1,107 @@
+# Shared per-server NECK Dash stack. Deploy this once per Komodo server.
+name: neckdash
+
+services:
+  neckdash:
+    image: ${NECKDASH_IMAGE:-ghcr.io/thetechquant/neck-stack/neckdash:latest}
+    platform: ${PROD_PLATFORM:-__PROD_PLATFORM__}
+    restart: unless-stopped
+    environment:
+      PORT: 8080
+      ENCORE_AUTH_KEY: ${ENCORE_AUTH_KEY:-__ENCORE_AUTH_KEY_DEFAULT__}
+      NECKDASH_TRACE_AUTH_KEYS: ${NECKDASH_TRACE_AUTH_KEYS:-__APP_ID__=__ENCORE_AUTH_KEY_DEFAULT__}
+      NECKDASH_REQUIRE_TRACE_AUTH: ${NECKDASH_REQUIRE_TRACE_AUTH:-true}
+      NECKDASH_TRACE_SERVICE_FANOUT_LIMIT: ${NECKDASH_TRACE_SERVICE_FANOUT_LIMIT:-32}
+      NECKDASH_APPS_ROOT: /apps
+      VICTORIA_TRACES_OTLP_URL: ${VICTORIA_TRACES_OTLP_URL:-http://victoria-traces:10428/insert/opentelemetry/v1/traces}
+      VICTORIA_TRACES_QUERY_URL: ${VICTORIA_TRACES_QUERY_URL:-http://victoria-traces:10428/select/jaeger}
+      VICTORIA_METRICS_QUERY_URL: ${VICTORIA_METRICS_QUERY_URL:-http://victoria-metrics:8428/api/v1/query}
+      VICTORIA_LOGS_INSERT_URL: ${VICTORIA_LOGS_INSERT_URL:-http://victoria-logs:9428/insert/jsonline?_stream_fields=app_id,env_id,service,level&_time_field=timestamp&_msg_field=message}
+      VICTORIA_LOGS_QUERY_URL: ${VICTORIA_LOGS_QUERY_URL:-http://victoria-logs:9428/select/logsql/query}
+    expose:
+      - "8080"
+    volumes:
+      - ${NECKDASH_APPS_ROOT:-/opt/stacks}:/apps:ro
+    networks:
+      - neck-ingress
+    depends_on:
+      victoria-traces:
+        condition: service_started
+      victoria-metrics:
+        condition: service_started
+      victoria-logs:
+        condition: service_started
+
+  neckdash-ui:
+    image: ${NECKDASH_UI_IMAGE:-ghcr.io/thetechquant/neck-stack/neckdash-ui:latest}
+    platform: ${PROD_PLATFORM:-__PROD_PLATFORM__}
+    restart: unless-stopped
+    environment:
+      NUXT_APP_BASE_URL: ${NUXT_APP_BASE_URL:-/__neck_dash/}
+      NUXT_PUBLIC_NECKDASH_API_BASE_URL: ${NUXT_PUBLIC_NECKDASH_API_BASE_URL:-/__neck_dash/api}
+      NUXT_NECKDASH_API_INTERNAL_BASE_URL: ${NUXT_NECKDASH_API_INTERNAL_BASE_URL:-http://neckdash:8080}
+      PORT: 3000
+      HOST: 0.0.0.0
+    expose:
+      - "3000"
+    networks:
+      - neck-ingress
+    depends_on:
+      neckdash:
+        condition: service_started
+
+  victoria-traces:
+    image: ${VICTORIA_TRACES_IMAGE:-victoriametrics/victoria-traces:latest}
+    platform: ${PROD_PLATFORM:-__PROD_PLATFORM__}
+    restart: unless-stopped
+    command:
+      - -httpListenAddr=:10428
+      - -storageDataPath=/victoria-traces-data
+      - -retentionPeriod=${VICTORIA_TRACES_RETENTION:-30d}
+      - -servicegraph.enableTask=true
+    volumes:
+      - victoria_traces_data:/victoria-traces-data
+    expose:
+      - "10428"
+    networks:
+      - neck-ingress
+
+  victoria-metrics:
+    image: ${VICTORIA_METRICS_IMAGE:-victoriametrics/victoria-metrics:latest}
+    platform: ${PROD_PLATFORM:-__PROD_PLATFORM__}
+    restart: unless-stopped
+    command:
+      - -httpListenAddr=:8428
+      - -storageDataPath=/victoria-metrics-data
+      - -retentionPeriod=${VICTORIA_METRICS_RETENTION:-90d}
+    volumes:
+      - victoria_metrics_data:/victoria-metrics-data
+    expose:
+      - "8428"
+    networks:
+      - neck-ingress
+
+  victoria-logs:
+    image: ${VICTORIA_LOGS_IMAGE:-victoriametrics/victoria-logs:latest}
+    platform: ${PROD_PLATFORM:-__PROD_PLATFORM__}
+    restart: unless-stopped
+    command:
+      - -httpListenAddr=:9428
+      - -storageDataPath=/victoria-logs-data
+      - -retentionPeriod=${VICTORIA_LOGS_RETENTION:-30d}
+    volumes:
+      - victoria_logs_data:/victoria-logs-data
+    expose:
+      - "9428"
+    networks:
+      - neck-ingress
+
+volumes:
+  victoria_traces_data:
+  victoria_metrics_data:
+  victoria_logs_data:
+
+networks:
+  neck-ingress:
+    external: true
+    name: ${NECK_INGRESS_NETWORK:-neck-ingress}

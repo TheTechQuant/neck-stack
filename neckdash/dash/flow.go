@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -57,15 +56,29 @@ type flowEdgeAccumulator struct {
 // Flow returns an Encore Flow-style dependency graph from generated metadata plus observed servicegraph counts.
 //
 //encore:api public method=GET path=/flow
-func Flow(ctx context.Context) (*FlowResponse, error) {
-	data, _ := os.ReadFile(env("NECKDASH_META_PATH", "/catalog/meta.json"))
-	nodes, edgeMap := catalogFlow(data)
+func Flow(ctx context.Context, params *AppParams) (*FlowResponse, error) {
+	appID := ""
+	if params != nil {
+		appID = params.App
+	}
+	catalog, err := selectedCatalog(appID)
+	if err != nil {
+		return nil, err
+	}
+	nodes, edgeMap := catalogFlow(catalog.metaBytes)
 	seenNodes := make(map[string]bool, len(nodes))
+	knownServices := make(map[string]bool)
 	for _, node := range nodes {
 		seenNodes[node.ID] = true
+		if node.Kind == "service" {
+			knownServices[node.Name] = true
+		}
 	}
 
 	for _, observed := range observedFlowEdges(ctx) {
+		if len(knownServices) > 0 && (!knownServices[observed.Source] || !knownServices[observed.Target]) {
+			continue
+		}
 		sourceID := flowServiceID(observed.Source)
 		targetID := flowServiceID(observed.Target)
 		if !seenNodes[sourceID] {

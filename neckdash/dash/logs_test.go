@@ -62,6 +62,7 @@ func TestExtractLogEntriesPreservesStructuredFields(t *testing.T) {
 
 func TestBuildLogQuery(t *testing.T) {
 	query := buildLogQuery(&LogListParams{
+		App:     "billing-app",
 		Query:   `payment "failed"`,
 		Service: "billing",
 		Level:   "ERROR",
@@ -75,6 +76,7 @@ func TestBuildLogQuery(t *testing.T) {
 		`service:="billing"`,
 		`level:="error"`,
 		`trace_id:="abc123"`,
+		`app_id:="billing-app"`,
 	} {
 		if !strings.Contains(query, want) {
 			t.Fatalf("query %q does not contain %q", query, want)

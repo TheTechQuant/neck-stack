@@ -23,6 +23,7 @@ const gitProvider = "__GIT_PROVIDER__";
 const gitAccount = "__GIT_ACCOUNT__";
 const gitlabProject = "__GITLAB_PROJECT__";
 const runDirectory = "__RUN_DIRECTORY__";
+const defaultNeckDashAppsRoot = process.env.NECKDASH_APPS_ROOT || runDirectoryParent(runDirectory);
 
 const resources = await discoverEncoreResources("backend");
 
@@ -32,6 +33,11 @@ function tomlString(value) {
 
 function shellQuote(value) {
   return `'${value.replaceAll("'", "'\"'\"'")}'`;
+}
+
+function runDirectoryParent(value) {
+  const parent = path.posix.dirname(String(value || ""));
+  return parent && parent !== "." ? parent : "/opt/stacks";
 }
 
 function composeEnv(name, fallback) {
@@ -164,7 +170,7 @@ function backendEnvironment() {
   const env = [
     "      PORT: 8080",
     `      ENCORE_AUTH_KEY: ${composeEnv("ENCORE_AUTH_KEY", defaultEncoreAuthKey)}`,
-    "      VICTORIA_METRICS_REMOTE_WRITE_URL: ${VICTORIA_METRICS_REMOTE_WRITE_URL:-http://victoria-metrics:8428/api/v1/write}",
+    `      VICTORIA_METRICS_REMOTE_WRITE_URL: \${VICTORIA_METRICS_REMOTE_WRITE_URL:-http://victoria-metrics:8428/api/v1/write?extra_label=app_id=${appId}}`,
   ];
 
   if (hasDatabases()) {
@@ -181,10 +187,7 @@ function backendEnvironment() {
 }
 
 function backendDependsOn() {
-  const deps = [
-    `      neckdash:\n        condition: service_started`,
-    `      victoria-metrics:\n        condition: service_started`,
-  ];
+  const deps = [];
   if (hasDatabases()) {
     deps.push(`      postgres:\n        condition: service_healthy`);
   }
@@ -204,23 +207,24 @@ function renderCompose() {
 `  caddy:
     image: caddy:2.10-alpine
     restart: unless-stopped
+    labels:
+      caddy: \${DOMAIN:-${domain}}
+      caddy.reverse_proxy: "{{upstreams 8080}}"
     environment:
       DOMAIN: \${DOMAIN:-${domain}}
       NECK_DASH_USER: \${NECK_DASH_USER:-${neckDashUser}}
       NECK_DASH_PASSWORD_HASH: ${composeEnv("NECK_DASH_PASSWORD_HASH", neckDashPasswordHash)}
-    ports:
-      - "80:80"
-      - "443:443"
+    expose:
+      - "8080"
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
+    networks:
+      - default
+      - neck-ingress
     depends_on:
       frontend:
         condition: service_started
       backend:
-        condition: service_started
-      neckdash-ui:
         condition: service_started`,
 `  frontend:
     image: \${FRONTEND_IMAGE:-${registry}/frontend:prod}
@@ -245,92 +249,15 @@ function renderCompose() {
     environment:
 ${backendEnvironment()}
     expose:
-      - "8080"${backendDependsOn()}
+      - "8080"
+    networks:
+      - default
+      - neck-ingress${backendDependsOn()}
     healthcheck:
       test: ["CMD-SHELL", "node -e \\"fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\\""]
       interval: 15s
       timeout: 5s
       retries: 8`,
-`  neckdash:
-    image: \${NECKDASH_IMAGE:-${defaultNeckDashImage}}
-    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
-    restart: unless-stopped
-    environment:
-      PORT: 8080
-      ENCORE_AUTH_KEY: ${composeEnv("ENCORE_AUTH_KEY", defaultEncoreAuthKey)}
-      NECKDASH_REQUIRE_TRACE_AUTH: \${NECKDASH_REQUIRE_TRACE_AUTH:-true}
-      NECKDASH_TRACE_SERVICE_FANOUT_LIMIT: \${NECKDASH_TRACE_SERVICE_FANOUT_LIMIT:-32}
-      VICTORIA_TRACES_OTLP_URL: \${VICTORIA_TRACES_OTLP_URL:-http://victoria-traces:10428/insert/opentelemetry/v1/traces}
-      VICTORIA_TRACES_QUERY_URL: \${VICTORIA_TRACES_QUERY_URL:-http://victoria-traces:10428/select/jaeger}
-      VICTORIA_METRICS_QUERY_URL: \${VICTORIA_METRICS_QUERY_URL:-http://victoria-metrics:8428/api/v1/query}
-      VICTORIA_LOGS_INSERT_URL: \${VICTORIA_LOGS_INSERT_URL:-http://victoria-logs:9428/insert/jsonline?_stream_fields=app_id,env_id,service,level&_time_field=timestamp&_msg_field=message}
-      VICTORIA_LOGS_QUERY_URL: \${VICTORIA_LOGS_QUERY_URL:-http://victoria-logs:9428/select/logsql/query}
-      NECKDASH_META_PATH: /catalog/meta.json
-      NECKDASH_OPENAPI_PATH: /catalog/openapi.json
-    expose:
-      - "8080"
-    volumes:
-      - ./encore/meta.json:/catalog/meta.json:ro
-      - ../docs/openapi.json:/catalog/openapi.json:ro
-    depends_on:
-      victoria-traces:
-        condition: service_started
-      victoria-metrics:
-        condition: service_started
-      victoria-logs:
-        condition: service_started`,
-`  neckdash-ui:
-    image: \${NECKDASH_UI_IMAGE:-${defaultNeckDashUIImage}}
-    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
-    restart: unless-stopped
-    environment:
-      NUXT_APP_BASE_URL: \${NUXT_APP_BASE_URL:-/__neck_dash/}
-      NUXT_PUBLIC_NECKDASH_API_BASE_URL: \${NUXT_PUBLIC_NECKDASH_API_BASE_URL:-/__neck_dash/api}
-      NUXT_NECKDASH_API_INTERNAL_BASE_URL: \${NUXT_NECKDASH_API_INTERNAL_BASE_URL:-http://neckdash:8080}
-      PORT: 3000
-      HOST: 0.0.0.0
-    expose:
-      - "3000"
-    depends_on:
-      neckdash:
-        condition: service_started`,
-`  victoria-traces:
-    image: \${VICTORIA_TRACES_IMAGE:-${defaultVictoriaTracesImage}}
-    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
-    restart: unless-stopped
-    command:
-      - -httpListenAddr=:10428
-      - -storageDataPath=/victoria-traces-data
-      - -retentionPeriod=\${VICTORIA_TRACES_RETENTION:-30d}
-      - -servicegraph.enableTask=true
-    volumes:
-      - victoria_traces_data:/victoria-traces-data
-    expose:
-      - "10428"`,
-`  victoria-metrics:
-    image: \${VICTORIA_METRICS_IMAGE:-${defaultVictoriaMetricsImage}}
-    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
-    restart: unless-stopped
-    command:
-      - -httpListenAddr=:8428
-      - -storageDataPath=/victoria-metrics-data
-      - -retentionPeriod=\${VICTORIA_METRICS_RETENTION:-90d}
-    volumes:
-      - victoria_metrics_data:/victoria-metrics-data
-    expose:
-      - "8428"`,
-`  victoria-logs:
-    image: \${VICTORIA_LOGS_IMAGE:-${defaultVictoriaLogsImage}}
-    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
-    restart: unless-stopped
-    command:
-      - -httpListenAddr=:9428
-      - -storageDataPath=/victoria-logs-data
-      - -retentionPeriod=\${VICTORIA_LOGS_RETENTION:-30d}
-    volumes:
-      - victoria_logs_data:/victoria-logs-data
-    expose:
-      - "9428"`,
   ];
 
   if (hasPostgres()) {
@@ -426,39 +353,139 @@ ${backendEnvironment()}
         condition: service_healthy`);
   }
 
-  const volumes = ["  caddy_data:", "  caddy_config:", "  victoria_traces_data:", "  victoria_metrics_data:", "  victoria_logs_data:"];
+  const volumes = [];
   if (hasPostgres()) volumes.push("  postgres_data:");
   if (hasCache()) volumes.push("  redis_data:");
   if (hasPubSub()) volumes.push("  nsq_data:");
 
-  return `# Generated by scripts/generate-encore-config.mjs from Encore metadata.\nname: \${COMPOSE_PROJECT_NAME:-${appId}}\n\nservices:\n${services.join("\n\n")}\n\nvolumes:\n${volumes.join("\n")}\n`;
+  const volumeBlock = volumes.length > 0 ? `\n\nvolumes:\n${volumes.join("\n")}` : "";
+  return `# Generated by scripts/generate-encore-config.mjs from Encore metadata.\nname: \${COMPOSE_PROJECT_NAME:-${appId}}\n\nservices:\n${services.join("\n\n")}${volumeBlock}\n\nnetworks:\n  neck-ingress:\n    external: true\n    name: \${NECK_INGRESS_NETWORK:-neck-ingress}\n`;
+}
+
+function renderNeckDashCompose() {
+  return `# Shared per-server NECK Dash stack. Deploy this once per Komodo server.
+name: neckdash
+
+services:
+  neckdash:
+    image: \${NECKDASH_IMAGE:-${defaultNeckDashImage}}
+    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
+    restart: unless-stopped
+    environment:
+      PORT: 8080
+      ENCORE_AUTH_KEY: ${composeEnv("ENCORE_AUTH_KEY", defaultEncoreAuthKey)}
+      NECKDASH_TRACE_AUTH_KEYS: \${NECKDASH_TRACE_AUTH_KEYS:-}
+      NECKDASH_REQUIRE_TRACE_AUTH: \${NECKDASH_REQUIRE_TRACE_AUTH:-true}
+      NECKDASH_TRACE_SERVICE_FANOUT_LIMIT: \${NECKDASH_TRACE_SERVICE_FANOUT_LIMIT:-32}
+      NECKDASH_APPS_ROOT: /apps
+      VICTORIA_TRACES_OTLP_URL: \${VICTORIA_TRACES_OTLP_URL:-http://victoria-traces:10428/insert/opentelemetry/v1/traces}
+      VICTORIA_TRACES_QUERY_URL: \${VICTORIA_TRACES_QUERY_URL:-http://victoria-traces:10428/select/jaeger}
+      VICTORIA_METRICS_QUERY_URL: \${VICTORIA_METRICS_QUERY_URL:-http://victoria-metrics:8428/api/v1/query}
+      VICTORIA_LOGS_INSERT_URL: \${VICTORIA_LOGS_INSERT_URL:-http://victoria-logs:9428/insert/jsonline?_stream_fields=app_id,env_id,service,level&_time_field=timestamp&_msg_field=message}
+      VICTORIA_LOGS_QUERY_URL: \${VICTORIA_LOGS_QUERY_URL:-http://victoria-logs:9428/select/logsql/query}
+    expose:
+      - "8080"
+    volumes:
+      - \${NECKDASH_APPS_ROOT:-${defaultNeckDashAppsRoot}}:/apps:ro
+    networks:
+      - neck-ingress
+    depends_on:
+      victoria-traces:
+        condition: service_started
+      victoria-metrics:
+        condition: service_started
+      victoria-logs:
+        condition: service_started
+
+  neckdash-ui:
+    image: \${NECKDASH_UI_IMAGE:-${defaultNeckDashUIImage}}
+    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
+    restart: unless-stopped
+    environment:
+      NUXT_APP_BASE_URL: \${NUXT_APP_BASE_URL:-/__neck_dash/}
+      NUXT_PUBLIC_NECKDASH_API_BASE_URL: \${NUXT_PUBLIC_NECKDASH_API_BASE_URL:-/__neck_dash/api}
+      NUXT_NECKDASH_API_INTERNAL_BASE_URL: \${NUXT_NECKDASH_API_INTERNAL_BASE_URL:-http://neckdash:8080}
+      PORT: 3000
+      HOST: 0.0.0.0
+    expose:
+      - "3000"
+    networks:
+      - neck-ingress
+    depends_on:
+      neckdash:
+        condition: service_started
+
+  victoria-traces:
+    image: \${VICTORIA_TRACES_IMAGE:-${defaultVictoriaTracesImage}}
+    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
+    restart: unless-stopped
+    command:
+      - -httpListenAddr=:10428
+      - -storageDataPath=/victoria-traces-data
+      - -retentionPeriod=\${VICTORIA_TRACES_RETENTION:-30d}
+      - -servicegraph.enableTask=true
+    volumes:
+      - victoria_traces_data:/victoria-traces-data
+    expose:
+      - "10428"
+    networks:
+      - neck-ingress
+
+  victoria-metrics:
+    image: \${VICTORIA_METRICS_IMAGE:-${defaultVictoriaMetricsImage}}
+    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
+    restart: unless-stopped
+    command:
+      - -httpListenAddr=:8428
+      - -storageDataPath=/victoria-metrics-data
+      - -retentionPeriod=\${VICTORIA_METRICS_RETENTION:-90d}
+    volumes:
+      - victoria_metrics_data:/victoria-metrics-data
+    expose:
+      - "8428"
+    networks:
+      - neck-ingress
+
+  victoria-logs:
+    image: \${VICTORIA_LOGS_IMAGE:-${defaultVictoriaLogsImage}}
+    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
+    restart: unless-stopped
+    command:
+      - -httpListenAddr=:9428
+      - -storageDataPath=/victoria-logs-data
+      - -retentionPeriod=\${VICTORIA_LOGS_RETENTION:-30d}
+    volumes:
+      - victoria_logs_data:/victoria-logs-data
+    expose:
+      - "9428"
+    networks:
+      - neck-ingress
+
+volumes:
+  victoria_traces_data:
+  victoria_metrics_data:
+  victoria_logs_data:
+
+networks:
+  neck-ingress:
+    external: true
+    name: \${NECK_INGRESS_NETWORK:-neck-ingress}
+`;
 }
 
 function komodoEnvLines() {
   const lines = [
     "APP_ENV = production",
     `DOMAIN = ${domain}`,
+    "NECK_INGRESS_NETWORK = neck-ingress",
     `NECK_DASH_USER = ${neckDashUser}`,
     `NECK_DASH_PASSWORD_HASH = ${neckDashPasswordHash}`,
     `ENCORE_AUTH_KEY = ${defaultEncoreAuthKey}`,
-    "NECKDASH_REQUIRE_TRACE_AUTH = true",
-    "NECKDASH_TRACE_SERVICE_FANOUT_LIMIT = 32",
     "NUXT_PUBLIC_ENCORE_TOOLBAR = true",
     "NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME = production",
     "NUXT_PUBLIC_API_BASE_URL = /api",
     "NUXT_API_INTERNAL_BASE_URL = http://backend:8080",
-    "NUXT_APP_BASE_URL = /__neck_dash/",
-    "NUXT_PUBLIC_NECKDASH_API_BASE_URL = /__neck_dash/api",
-    "NUXT_NECKDASH_API_INTERNAL_BASE_URL = http://neckdash:8080",
-    "VICTORIA_TRACES_OTLP_URL = http://victoria-traces:10428/insert/opentelemetry/v1/traces",
-    "VICTORIA_TRACES_QUERY_URL = http://victoria-traces:10428/select/jaeger",
-    "VICTORIA_TRACES_RETENTION = 30d",
-    "VICTORIA_METRICS_QUERY_URL = http://victoria-metrics:8428/api/v1/query",
-    "VICTORIA_METRICS_REMOTE_WRITE_URL = http://victoria-metrics:8428/api/v1/write",
-    "VICTORIA_METRICS_RETENTION = 90d",
-    "VICTORIA_LOGS_INSERT_URL = http://victoria-logs:9428/insert/jsonline?_stream_fields=app_id,env_id,service,level&_time_field=timestamp&_msg_field=message",
-    "VICTORIA_LOGS_QUERY_URL = http://victoria-logs:9428/select/logsql/query",
-    "VICTORIA_LOGS_RETENTION = 30d",
+    `VICTORIA_METRICS_REMOTE_WRITE_URL = http://victoria-metrics:8428/api/v1/write?extra_label=app_id=${appId}`,
     `PROD_PLATFORM = ${prodPlatform}`,
     "",
   ];
@@ -475,16 +502,40 @@ function komodoEnvLines() {
 
   lines.push(`BACKEND_IMAGE = ${registry}/backend:prod`);
   lines.push(`FRONTEND_IMAGE = ${registry}/frontend:prod`);
-  lines.push(`NECKDASH_IMAGE = ${defaultNeckDashImage}`);
-  lines.push(`NECKDASH_UI_IMAGE = ${defaultNeckDashUIImage}`);
-  lines.push(`VICTORIA_TRACES_IMAGE = ${defaultVictoriaTracesImage}`);
-  lines.push(`VICTORIA_METRICS_IMAGE = ${defaultVictoriaMetricsImage}`);
-  lines.push(`VICTORIA_LOGS_IMAGE = ${defaultVictoriaLogsImage}`);
   if (hasPostgres()) {
     lines.push(`MIGRATIONS_IMAGE = ${registry}/migrations:prod`);
   }
 
   return lines.join("\n");
+}
+
+function neckDashKomodoEnvLines() {
+  return [
+    "NECK_INGRESS_NETWORK = neck-ingress",
+    `NECKDASH_APPS_ROOT = ${defaultNeckDashAppsRoot}`,
+    `ENCORE_AUTH_KEY = ${defaultEncoreAuthKey}`,
+    `NECKDASH_TRACE_AUTH_KEYS = ${appId}=${defaultEncoreAuthKey}`,
+    "NECKDASH_REQUIRE_TRACE_AUTH = true",
+    "NECKDASH_TRACE_SERVICE_FANOUT_LIMIT = 32",
+    "NUXT_APP_BASE_URL = /__neck_dash/",
+    "NUXT_PUBLIC_NECKDASH_API_BASE_URL = /__neck_dash/api",
+    "NUXT_NECKDASH_API_INTERNAL_BASE_URL = http://neckdash:8080",
+    "VICTORIA_TRACES_OTLP_URL = http://victoria-traces:10428/insert/opentelemetry/v1/traces",
+    "VICTORIA_TRACES_QUERY_URL = http://victoria-traces:10428/select/jaeger",
+    "VICTORIA_TRACES_RETENTION = 30d",
+    "VICTORIA_METRICS_QUERY_URL = http://victoria-metrics:8428/api/v1/query",
+    "VICTORIA_METRICS_RETENTION = 90d",
+    "VICTORIA_LOGS_INSERT_URL = http://victoria-logs:9428/insert/jsonline?_stream_fields=app_id,env_id,service,level&_time_field=timestamp&_msg_field=message",
+    "VICTORIA_LOGS_QUERY_URL = http://victoria-logs:9428/select/logsql/query",
+    "VICTORIA_LOGS_RETENTION = 30d",
+    `PROD_PLATFORM = ${prodPlatform}`,
+    "",
+    `NECKDASH_IMAGE = ${defaultNeckDashImage}`,
+    `NECKDASH_UI_IMAGE = ${defaultNeckDashUIImage}`,
+    `VICTORIA_TRACES_IMAGE = ${defaultVictoriaTracesImage}`,
+    `VICTORIA_METRICS_IMAGE = ${defaultVictoriaMetricsImage}`,
+    `VICTORIA_LOGS_IMAGE = ${defaultVictoriaLogsImage}`,
+  ].join("\n");
 }
 
 function komodoSchedule(cron) {
@@ -596,6 +647,34 @@ ${ignoreServicesLine}environment = """\n${komodoEnvLines()}\n"""
   return `${stack}${actions.join("\n")}\n`;
 }
 
+function renderNeckDashKomodoResources() {
+  return `# Shared NECK Dash Komodo stack. Import once per server, not once per app.
+[[stack]]
+name = "neckdash"
+description = "Shared per-server NECK Dash and Victoria observability stack"
+tags = ["neck", "observability"]
+deploy = true
+
+[stack.config]
+server = ${tomlString(komodoServer)}
+project_name = "neckdash"
+run_directory = ${tomlString(runDirectory)}
+file_paths = ["deploy/neckdash/compose.yaml"]
+git_provider = ${tomlString(gitProvider)}
+git_account = ${tomlString(gitAccount)}
+repo = ${tomlString(gitlabProject)}
+branch = "main"
+environment = """\n${neckDashKomodoEnvLines()}\n"""
+`;
+}
+
+function renderMetaJSON() {
+  return `${JSON.stringify({
+    ...resources.metadata,
+    app_id: appId,
+  }, null, 2)}\n`;
+}
+
 async function writeGeneratedFile(outputPath, contents) {
   await fs.ensureDir(path.dirname(outputPath));
   await fs.writeFile(outputPath, contents);
@@ -603,9 +682,11 @@ async function writeGeneratedFile(outputPath, contents) {
 }
 
 await writeGeneratedFile(path.resolve("deploy/encore/infra.prod.json"), renderInfraConfig());
-await writeGeneratedFile(path.resolve("deploy/encore/meta.json"), `${JSON.stringify(resources.metadata, null, 2)}\n`);
+await writeGeneratedFile(path.resolve("deploy/encore/meta.json"), renderMetaJSON());
 await writeGeneratedFile(path.resolve("deploy/compose.yaml"), renderCompose());
 await writeGeneratedFile(path.resolve("deploy/komodo/resources.toml"), renderKomodoResources());
+await writeGeneratedFile(path.resolve("deploy/neckdash/compose.yaml"), renderNeckDashCompose());
+await writeGeneratedFile(path.resolve("deploy/neckdash/resources.toml"), renderNeckDashKomodoResources());
 
 console.log(chalk.dim(`source=${resources.source}`));
 console.log(chalk.dim(`services=${resources.services.length} databases=${resources.databases.length} caches=${resources.caches.length} topics=${resources.topics.length} buckets=${resources.buckets.length} crons=${resources.crons.length} secrets=${resources.secrets.length}`));

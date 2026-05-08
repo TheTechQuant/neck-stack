@@ -28,6 +28,9 @@ var logFieldNamePattern = regexp.MustCompile(`[^A-Za-z0-9_.-]+`)
 //
 //encore:api public method=GET path=/logs
 func ListLogs(ctx context.Context, params *LogListParams) (*LogListResponse, error) {
+	if params == nil {
+		params = &LogListParams{}
+	}
 	limit := params.Limit
 	if limit <= 0 || limit > 500 {
 		limit = 200
@@ -72,6 +75,7 @@ func TailLogs(w http.ResponseWriter, req *http.Request) {
 	}
 
 	params := &LogListParams{
+		App:     req.URL.Query().Get("app"),
 		Query:   req.URL.Query().Get("query"),
 		Service: req.URL.Query().Get("service"),
 		Level:   req.URL.Query().Get("level"),
@@ -249,6 +253,9 @@ func buildLogQuery(params *LogListParams, tail bool) string {
 	if traceID := strings.TrimSpace(params.TraceID); traceID != "" {
 		parts = append(parts, logsQLExact("trace_id", traceID))
 	}
+	if appID := strings.TrimSpace(params.App); appID != "" {
+		parts = append(parts, logsQLExact("app_id", appID))
+	}
 	if len(parts) == 0 {
 		return "*"
 	}
@@ -257,6 +264,7 @@ func buildLogQuery(params *LogListParams, tail bool) string {
 
 func hasLogFilter(params *LogListParams) bool {
 	return strings.TrimSpace(params.Query) != "" ||
+		strings.TrimSpace(params.App) != "" ||
 		strings.TrimSpace(params.Service) != "" ||
 		strings.TrimSpace(params.Level) != "" ||
 		strings.TrimSpace(params.TraceID) != ""

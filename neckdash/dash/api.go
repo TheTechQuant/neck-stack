@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +23,10 @@ func Health(ctx context.Context) (*HealthResponse, error) {
 //
 //encore:api public method=GET path=/traces
 func ListTraces(ctx context.Context, params *TraceListParams) (*TraceListResponse, error) {
+	if params == nil {
+		params = &TraceListParams{}
+	}
+	appID := strings.TrimSpace(params.App)
 	limit := params.Limit
 	if limit <= 0 || limit > 100 {
 		limit = 50
@@ -34,7 +37,7 @@ func ListTraces(ctx context.Context, params *TraceListParams) (*TraceListRespons
 	}
 	if looksLikeTraceID(params.Search) {
 		trace, err := getJaegerTrace(ctx, params.Search)
-		if err == nil && trace.TraceID != "" {
+		if err == nil && trace.TraceID != "" && (appID == "" || jaegerTraceAppID(trace) == appID) {
 			return &TraceListResponse{Traces: []TraceSummary{summarizeJaegerTrace(trace)}}, nil
 		}
 	}
@@ -43,6 +46,9 @@ func ListTraces(ctx context.Context, params *TraceListParams) (*TraceListRespons
 		discovered, err := listServices(ctx)
 		if err == nil {
 			services = discovered
+		}
+		if appID != "" {
+			services = filterServicesByAppCatalog(services, appID)
 		}
 		fanoutLimit := traceServiceFanoutLimit()
 		if len(services) > fanoutLimit {
@@ -58,7 +64,7 @@ func ListTraces(ctx context.Context, params *TraceListParams) (*TraceListRespons
 		if service == "" {
 			continue
 		}
-		got, err := queryJaegerTraces(ctx, service, limit, start, end)
+		got, err := queryJaegerTraces(ctx, service, limit, start, end, appID)
 		if err != nil {
 			return nil, err
 		}
@@ -82,10 +88,13 @@ func ListTraces(ctx context.Context, params *TraceListParams) (*TraceListRespons
 // ListTraceServices returns service names indexed by VictoriaTraces.
 //
 //encore:api public method=GET path=/traces/services
-func ListTraceServices(ctx context.Context) (*TraceServicesResponse, error) {
+func ListTraceServices(ctx context.Context, params *AppParams) (*TraceServicesResponse, error) {
 	services, err := listServices(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if params != nil && strings.TrimSpace(params.App) != "" {
+		services = filterServicesByAppCatalog(services, params.App)
 	}
 	return &TraceServicesResponse{Services: services}, nil
 }
@@ -105,11 +114,15 @@ func GetTrace(ctx context.Context, traceID string) (*TraceDetailResponse, error)
 //
 //encore:api public method=GET path=/insights
 func Insights(ctx context.Context, params *InsightsParams) (*InsightsResponse, error) {
+	if params == nil {
+		params = &InsightsParams{}
+	}
 	window := resolveInsightsWindow(params.Range)
-	requests, _ := queryScalar(ctx, fmt.Sprintf(`sum(increase(e_requests_total[%s]))`, window.PromDuration))
-	errors, _ := queryScalar(ctx, fmt.Sprintf(`sum(increase(e_requests_total{code!="ok"}[%s]))`, window.PromDuration))
-	services, _ := insightServices(ctx, window)
-	series, _ := insightRateSeries(ctx, window)
+	filter := metricAppFilter(params.App)
+	requests, _ := queryScalar(ctx, fmt.Sprintf(`sum(increase(e_requests_total%s[%s]))`, filter, window.PromDuration))
+	errors, _ := queryScalar(ctx, fmt.Sprintf(`sum(increase(e_requests_total%s[%s]))`, mergeMetricFilter(filter, `code!="ok"`), window.PromDuration))
+	services, _ := insightServices(ctx, window, filter)
+	series, _ := insightRateSeries(ctx, window, filter)
 
 	errorRate := 0.0
 	if requests > 0 {
@@ -130,13 +143,17 @@ func Insights(ctx context.Context, params *InsightsParams) (*InsightsResponse, e
 //
 //encore:api public method=GET path=/metrics/summary
 func MetricsSummary(ctx context.Context, params *MetricsParams) (*MetricsResponse, error) {
+	if params == nil {
+		params = &MetricsParams{}
+	}
 	hours := params.Hours
 	if hours <= 0 || hours > 720 {
 		hours = 24
 	}
-	counts, _ := queryMetric(ctx, fmt.Sprintf(`sum by (service,endpoint) (increase(e_requests_total[%dh]))`, hours))
-	errorsByEndpoint, _ := queryMetric(ctx, fmt.Sprintf(`sum by (service,endpoint) (increase(e_requests_total{code!="ok"}[%dh]))`, hours))
-	runtime, _ := runtimeMetrics(ctx)
+	filter := metricAppFilter(params.App)
+	counts, _ := queryMetric(ctx, fmt.Sprintf(`sum by (service,endpoint) (increase(e_requests_total%s[%dh]))`, filter, hours))
+	errorsByEndpoint, _ := queryMetric(ctx, fmt.Sprintf(`sum by (service,endpoint) (increase(e_requests_total%s[%dh]))`, mergeMetricFilter(filter, `code!="ok"`), hours))
+	runtime, _ := runtimeMetrics(ctx, filter)
 
 	merged := make(map[string]ServiceMetric)
 	for key, value := range counts {
@@ -164,27 +181,31 @@ func MetricsSummary(ctx context.Context, params *MetricsParams) (*MetricsRespons
 //
 //encore:api public method=GET path=/metrics/custom
 func CustomMetrics(ctx context.Context, params *MetricsParams) (*CustomMetricsResponse, error) {
+	if params == nil {
+		params = &MetricsParams{}
+	}
 	hours := params.Hours
 	if hours <= 0 || hours > 720 {
 		hours = 24
 	}
-	definitions, err := metricDefinitions()
+	definitions, err := metricDefinitions(params.App)
 	if err != nil {
 		return nil, err
 	}
+	filter := metricAppFilter(params.App)
 
 	var samples []MetricSample
 	for _, def := range definitions {
 		if !validMetricName(def.Name) {
 			continue
 		}
-		latest, err := queryVector(ctx, fmt.Sprintf(`last_over_time(%s[%dh])`, def.Name, hours))
+		latest, err := queryVector(ctx, fmt.Sprintf(`last_over_time(%s%s[%dh])`, def.Name, filter, hours))
 		if err != nil {
 			continue
 		}
 		windowValues := make(map[string]float64)
 		if def.Kind == "counter" {
-			window, err := queryVector(ctx, fmt.Sprintf(`increase(%s[%dh])`, def.Name, hours))
+			window, err := queryVector(ctx, fmt.Sprintf(`increase(%s%s[%dh])`, def.Name, filter, hours))
 			if err == nil {
 				for _, item := range window {
 					windowValues[labelsKey(item.Labels)] = item.Value
@@ -220,13 +241,20 @@ func CustomMetrics(ctx context.Context, params *MetricsParams) (*CustomMetricsRe
 // Catalog returns generated Encore metadata and OpenAPI JSON mounted by the deployed app.
 //
 //encore:api public method=GET path=/catalog
-func Catalog(ctx context.Context) (*CatalogResponse, error) {
-	meta, _ := os.ReadFile(env("NECKDASH_META_PATH", "/catalog/meta.json"))
-	openapi, _ := os.ReadFile(env("NECKDASH_OPENAPI_PATH", "/catalog/openapi.json"))
+func Catalog(ctx context.Context, params *AppParams) (*CatalogResponse, error) {
+	appID := ""
+	if params != nil {
+		appID = params.App
+	}
+	catalog, err := selectedCatalog(appID)
+	if err != nil {
+		return nil, err
+	}
 	return &CatalogResponse{
-		MetaJSON:    string(meta),
-		OpenAPIJSON: string(openapi),
-		Services:    buildCatalog(meta, openapi),
+		AppID:       catalog.app.ID,
+		MetaJSON:    string(catalog.metaBytes),
+		OpenAPIJSON: string(catalog.openAPIBytes),
+		Services:    buildCatalog(catalog.metaBytes, catalog.openAPIBytes),
 	}, nil
 }
 
@@ -270,12 +298,16 @@ func getJaegerTrace(ctx context.Context, traceID string) (jaegerTrace, error) {
 	return raw.Data[0], nil
 }
 
-func queryJaegerTraces(ctx context.Context, service string, limit int, start time.Time, end time.Time) ([]TraceSummary, error) {
+func queryJaegerTraces(ctx context.Context, service string, limit int, start time.Time, end time.Time, appID string) ([]TraceSummary, error) {
 	values := url.Values{}
 	values.Set("service", service)
 	values.Set("limit", strconv.Itoa(limit))
 	values.Set("start", strconv.FormatInt(start.UnixMicro(), 10))
 	values.Set("end", strconv.FormatInt(end.UnixMicro(), 10))
+	if appID = strings.TrimSpace(appID); appID != "" {
+		tags, _ := json.Marshal(map[string]string{"encore.app_id": appID})
+		values.Set("tags", string(tags))
+	}
 	endpoint := victoriaTracesQueryURL() + "/api/traces?" + values.Encode()
 	var raw struct {
 		Data []jaegerTrace `json:"data"`
@@ -361,6 +393,17 @@ func summarizeJaegerTrace(trace jaegerTrace) TraceSummary {
 		}
 	}
 	return summary
+}
+
+func jaegerTraceAppID(trace jaegerTrace) string {
+	for _, span := range trace.Spans {
+		for _, tag := range span.Tags {
+			if tag.Key == "encore.app_id" {
+				return fmt.Sprint(tag.Value)
+			}
+		}
+	}
+	return ""
 }
 
 type jaegerTrace struct {
@@ -453,13 +496,13 @@ func resolveInsightsWindow(value string) insightsWindow {
 	}
 }
 
-func insightServices(ctx context.Context, window insightsWindow) ([]InsightsService, error) {
-	requests, err := queryByLabel(ctx, fmt.Sprintf(`sum by (service) (increase(e_requests_total[%s]))`, window.PromDuration), "service")
+func insightServices(ctx context.Context, window insightsWindow, filter string) ([]InsightsService, error) {
+	requests, err := queryByLabel(ctx, fmt.Sprintf(`sum by (service) (increase(e_requests_total%s[%s]))`, filter, window.PromDuration), "service")
 	if err != nil {
 		return nil, err
 	}
-	errors, _ := queryByLabel(ctx, fmt.Sprintf(`sum by (service) (increase(e_requests_total{code!="ok"}[%s]))`, window.PromDuration), "service")
-	rates, _ := queryByLabel(ctx, fmt.Sprintf(`sum by (service) (rate(e_requests_total[%s]))`, window.RateWindow), "service")
+	errors, _ := queryByLabel(ctx, fmt.Sprintf(`sum by (service) (increase(e_requests_total%s[%s]))`, mergeMetricFilter(filter, `code!="ok"`), window.PromDuration), "service")
+	rates, _ := queryByLabel(ctx, fmt.Sprintf(`sum by (service) (rate(e_requests_total%s[%s]))`, filter, window.RateWindow), "service")
 
 	seen := make(map[string]bool)
 	var services []InsightsService
@@ -491,10 +534,10 @@ func insightServices(ctx context.Context, window insightsWindow) ([]InsightsServ
 	return services, nil
 }
 
-func insightRateSeries(ctx context.Context, window insightsWindow) ([]InsightsSeries, error) {
+func insightRateSeries(ctx context.Context, window insightsWindow, filter string) ([]InsightsSeries, error) {
 	end := time.Now()
 	start := end.Add(-window.Duration)
-	results, err := queryRange(ctx, fmt.Sprintf(`sum by (service) (rate(e_requests_total[%s]))`, window.RateWindow), start, end, window.StepSeconds)
+	results, err := queryRange(ctx, fmt.Sprintf(`sum by (service) (rate(e_requests_total%s[%s]))`, filter, window.RateWindow), start, end, window.StepSeconds)
 	if err != nil {
 		return nil, err
 	}
@@ -628,7 +671,7 @@ func queryRange(ctx context.Context, query string, start time.Time, end time.Tim
 	return out, nil
 }
 
-func runtimeMetrics(ctx context.Context) ([]MetricSample, error) {
+func runtimeMetrics(ctx context.Context, filter string) ([]MetricSample, error) {
 	names := []struct {
 		name string
 		kind string
@@ -638,7 +681,7 @@ func runtimeMetrics(ctx context.Context) ([]MetricSample, error) {
 	}
 	var out []MetricSample
 	for _, item := range names {
-		results, err := queryVector(ctx, `last_over_time(`+item.name+`[1h])`)
+		results, err := queryVector(ctx, `last_over_time(`+item.name+filter+`[1h])`)
 		if err != nil {
 			continue
 		}
@@ -665,13 +708,14 @@ func splitMetricKey(key string) (string, string) {
 	return parts[0], parts[1]
 }
 
-func metricDefinitions() ([]MetricDefinition, error) {
-	data, err := os.ReadFile(env("NECKDASH_META_PATH", "/catalog/meta.json"))
+func metricDefinitions(appID string) ([]MetricDefinition, error) {
+	catalog, err := selectedCatalog(appID)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
 		return nil, err
+	}
+	data := catalog.metaBytes
+	if len(data) == 0 {
+		return nil, nil
 	}
 	var raw struct {
 		Metrics []metricDefinitionRaw `json:"metrics"`
@@ -762,4 +806,58 @@ func publicMetricLabels(labels map[string]string) map[string]string {
 		}
 	}
 	return out
+}
+
+func metricAppFilter(appID string) string {
+	appID = strings.TrimSpace(appID)
+	if appID == "" {
+		return ""
+	}
+	return `{app_id="` + escapeMetricLabel(appID) + `"}`
+}
+
+func mergeMetricFilter(filter string, exprs ...string) string {
+	var parts []string
+	trimmed := strings.TrimSpace(filter)
+	if strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}") {
+		inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "{"), "}"))
+		if inner != "" {
+			parts = append(parts, inner)
+		}
+	}
+	for _, expr := range exprs {
+		if expr = strings.TrimSpace(expr); expr != "" {
+			parts = append(parts, expr)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "{" + strings.Join(parts, ",") + "}"
+}
+
+func escapeMetricLabel(value string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
+	return replacer.Replace(value)
+}
+
+func filterServicesByAppCatalog(services []string, appID string) []string {
+	catalog, err := selectedCatalog(appID)
+	if err != nil || len(catalog.metaBytes) == 0 {
+		return services
+	}
+	serviceSet := make(map[string]bool)
+	for _, service := range buildCatalog(catalog.metaBytes, catalog.openAPIBytes) {
+		serviceSet[service.Name] = true
+	}
+	if len(serviceSet) == 0 {
+		return services
+	}
+	filtered := make([]string, 0, len(services))
+	for _, service := range services {
+		if serviceSet[service] {
+			filtered = append(filtered, service)
+		}
+	}
+	return filtered
 }

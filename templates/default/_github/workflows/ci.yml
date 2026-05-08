@@ -144,6 +144,8 @@ jobs:
             deploy/encore/meta.json
             deploy/compose.yaml
             deploy/komodo/resources.toml
+            deploy/neckdash/compose.yaml
+            deploy/neckdash/resources.toml
 
   migrate-prod:
     if: github.ref == 'refs/heads/main'

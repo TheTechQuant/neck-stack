@@ -104,6 +104,8 @@ build-images:
       - deploy/encore/meta.json
       - deploy/compose.yaml
       - deploy/komodo/resources.toml
+      - deploy/neckdash/compose.yaml
+      - deploy/neckdash/resources.toml
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
 
