@@ -2,7 +2,7 @@
 
 Initializer for NECK apps: Nuxt.js, Encore.ts, Caddy, and Komodo in one repo.
 
-NECK is a meta-stack for building full-stack products with strong defaults. It gives you a Nuxt frontend, an Encore.ts backend, Caddy ingress, Komodo deployment resources, GitLab CI, GitHub Actions, pnpm workspaces, zx scripts, generated Encore clients, OpenAPI output, migrations, and production infra generation.
+NECK is a meta-stack for building full-stack products with strong defaults. It gives you a Nuxt frontend, an Encore.ts backend, self-hosted NECK Dash observability, Caddy ingress, Komodo deployment resources, GitLab CI, GitHub Actions, pnpm workspaces, zx scripts, generated Encore clients, OpenAPI output, migrations, and production infra generation.
 
 ## Why NECK
 
@@ -21,6 +21,8 @@ The result is an opinionated setup in which things that you can get wrong are mi
 - `.gitlab-ci.yml`: GitLab pipeline for validate, image build, migration, and Komodo deploy. (NECK is optimized for gitlab repos)
 - `.github/workflows/ci.yml`: GitHub Actions version of the same flow.
 - `AGENTS.md`: canonical agent rules, symlinked into Claude, Zed, Cursor, and Copilot-style rule files.
+
+This repository also contains the NECK Dash source at root-level `neckdash` and `neckdash-ui`. Generated apps consume published Docker images instead of copying that source into every application repo.
 
 ## Quick Start
 
@@ -42,6 +44,7 @@ For a mostly configured run:
 pnpm create neck-stack my-app \
   --domain app.example.com \
   --dashboard-domain encore.app.example.com \
+  --neckdash-domain dash.app.example.com \
   --caddy-email ops@example.com \
   --dashboard-user ops \
   --gitlab-project my-group/my-app \
@@ -54,15 +57,19 @@ By default the initializer registers the existing backend template with Encore C
 
 ## Production Shape
 
-The generated app starts with only Caddy, frontend, and backend services. Caddy serves the Nuxt app on `DOMAIN` and proxies `/api/*` to Encore, so there is no separate API domain to configure. Postgres, Redis, NSQ, migration actions, and cron runner actions are generated only when Encore metadata reports matching backend resources. Object storage is deliberately external: use S3, Cloudflare R2, GCS, or another managed storage provider instead of adding MinIO to the default Komodo stack.
+The generated app serves Nuxt on `DOMAIN` and proxies `/api/*` to Encore, so there is no separate API domain to configure. NECK Dash is exposed on `NECK_DASH_DOMAIN` behind Caddy Basic Auth. The production backend is built with Encore's normal self-hosted Docker path using `deploy/encore/infra.prod.json`.
+
+NECK Dash stores observability data in VictoriaTraces and VictoriaMetrics. The generated Encore infra config uses the official Prometheus remote-write metrics primitive, so Encore's built-in metrics and app-defined custom metrics flow through the runtime exporter. App-level Postgres databases, Redis, NSQ, and cron runner actions are generated only when Encore metadata reports matching backend resources. Object storage is deliberately external: use S3, Cloudflare R2, GCS, or another managed storage provider instead of adding MinIO to the default Komodo stack.
 
 Encore SQL migrations are run with `golang-migrate/migrate` after images are built and before the stack restarts. Postgres and Redis stay private to the Compose network. Generated passwords let the first stack boot without manual secret work, and every generated password can be overridden in Komodo or server `.env` before volumes are initialized.
 
 Production image architecture is a first-class setting. Use `--prod-platform linux/arm64` at scaffold time, or override `PROD_PLATFORM` in CI/Komodo later; backend builds map it to Encore `--os/--arch`, and frontend/migration images use Docker `--platform`.
 
-The production Encore dashboard entrypoint is `ENCORE_DASHBOARD_DOMAIN`. Caddy protects it with HTTP Basic Auth and redirects to `ENCORE_DASHBOARD_URL`, which defaults to the Encore Cloud app page. The local Encore development dashboard is still local-only; production traces belong in Encore Cloud or your configured observability stack.
+The production observability entrypoint is `NECK_DASH_DOMAIN`. It receives official Encore metrics through VictoriaMetrics remote write and shows request metrics, custom metrics, runtime metrics, Flow-style dependencies, the service catalog, and OpenAPI docs. The NECK Dash sidecar also includes an Encore trace ingestion adapter for deployments that explicitly configure Encore trace export. `ENCORE_DASHBOARD_DOMAIN` is kept as an optional protected redirect to Encore Cloud for teams that use it.
 
-Generated deployment config has one source of truth: `pnpm infra:encore` writes `deploy/encore/infra.prod.json`, `deploy/compose.yaml`, and `deploy/komodo/resources.toml` from Encore metadata.
+Generated deployment config has one source of truth: `pnpm infra:encore` writes `deploy/encore/infra.prod.json`, `deploy/encore/meta.json`, `deploy/compose.yaml`, and `deploy/komodo/resources.toml` from Encore metadata.
+
+NECK Dash images are published from this repo as `ghcr.io/thetechquant/neck-stack/neckdash:latest` and `ghcr.io/thetechquant/neck-stack/neckdash-ui:latest`.
 
 ## Generated Commands
 

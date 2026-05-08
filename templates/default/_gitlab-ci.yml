@@ -59,6 +59,7 @@ build-images:
     - export PATH="$HOME/.encore/bin:$PATH"
     - if [ -n "$ENCORE_AUTH_KEY" ]; then encore auth login --auth-key="$ENCORE_AUTH_KEY"; fi
     - pnpm infra:encore
+    - export HAS_SQL="$(node -e 'const fs=require("fs"); const infra=JSON.parse(fs.readFileSync("deploy/encore/infra.prod.json","utf8")); console.log(Array.isArray(infra.sql_servers)&&infra.sql_servers.some((s)=>Object.keys(s.databases||{}).length>0)?"true":"false")')"
     - |
       case "${PROD_PLATFORM:-linux/amd64}" in
         linux/amd64|amd64|x64|x86_64)
@@ -81,40 +82,23 @@ build-images:
       if { [ "$PROD_ARCH" = "arm64" ] && [ "$RUNNER_ARCH" != "aarch64" ] && [ "$RUNNER_ARCH" != "arm64" ]; } || { [ "$PROD_ARCH" = "amd64" ] && [ "$RUNNER_ARCH" != "x86_64" ] && [ "$RUNNER_ARCH" != "amd64" ]; }; then
         docker run --privileged --rm tonistiigi/binfmt --install "$PROD_ARCH" || echo "QEMU/binfmt setup skipped; use a native ${PROD_PLATFORM} runner or enable privileged Docker for cross-arch builds."
       fi
-    - |
-      HAS_DATABASES="$(node -e "const c=JSON.parse(require('node:fs').readFileSync('deploy/encore/infra.prod.json','utf8')); if (c.sql_servers?.length) process.stdout.write('true'); else process.stdout.write('false')")"
-      export HAS_DATABASES
     - pnpm api:gen
     - cd backend && encore build docker --os "$PROD_OS" --arch "$PROD_ARCH" --config ../deploy/encore/infra.prod.json "$BACKEND_IMAGE" && cd ..
     - docker build --platform "$PROD_PLATFORM" -f frontend/Dockerfile --build-arg NUXT_PUBLIC_API_BASE_URL="/api" --build-arg NUXT_API_INTERNAL_BASE_URL="http://backend:8080" --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR="${NUXT_PUBLIC_ENCORE_TOOLBAR:-true}" --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME="${NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME:-production}" --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR_SRC="${NUXT_PUBLIC_ENCORE_TOOLBAR_SRC:-}" -t "$FRONTEND_IMAGE" .
-    - |
-      if [ "$HAS_DATABASES" = "true" ]; then
-        docker build --platform "$PROD_PLATFORM" -f deploy/migrations/Dockerfile -t "$MIGRATIONS_IMAGE" .
-      else
-        echo "No Encore SQLDatabase declarations; skipping migrations image"
-      fi
+    - if [ "$HAS_SQL" = "true" ]; then docker build --platform "$PROD_PLATFORM" -f deploy/migrations/Dockerfile -t "$MIGRATIONS_IMAGE" .; else echo "No SQLDatabase resources; skipping migration image."; fi
     - docker push "$BACKEND_IMAGE"
     - docker push "$FRONTEND_IMAGE"
-    - |
-      if [ "$HAS_DATABASES" = "true" ]; then
-        docker push "$MIGRATIONS_IMAGE"
-      fi
+    - if [ "$HAS_SQL" = "true" ]; then docker push "$MIGRATIONS_IMAGE"; fi
     - docker tag "$BACKEND_IMAGE" "$CI_REGISTRY_IMAGE/backend:prod"
     - docker tag "$FRONTEND_IMAGE" "$CI_REGISTRY_IMAGE/frontend:prod"
-    - |
-      if [ "$HAS_DATABASES" = "true" ]; then
-        docker tag "$MIGRATIONS_IMAGE" "$CI_REGISTRY_IMAGE/migrations:prod"
-      fi
     - docker push "$CI_REGISTRY_IMAGE/backend:prod"
     - docker push "$CI_REGISTRY_IMAGE/frontend:prod"
-    - |
-      if [ "$HAS_DATABASES" = "true" ]; then
-        docker push "$CI_REGISTRY_IMAGE/migrations:prod"
-      fi
+    - if [ "$HAS_SQL" = "true" ]; then docker tag "$MIGRATIONS_IMAGE" "$CI_REGISTRY_IMAGE/migrations:prod" && docker push "$CI_REGISTRY_IMAGE/migrations:prod"; fi
   artifacts:
     expire_in: 7 days
     paths:
       - deploy/encore/infra.prod.json
+      - deploy/encore/meta.json
       - deploy/compose.yaml
       - deploy/komodo/resources.toml
   rules:

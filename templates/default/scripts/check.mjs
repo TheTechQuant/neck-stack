@@ -30,6 +30,7 @@ await runStep("Check scripts", async () => {
   await $`node --check scripts/lib/prod-platform.mjs`;
   await $`node --check scripts/generate-encore-config.mjs`;
   await $`node --check scripts/build-backend-image.mjs`;
+  await $`node --check scripts/build-migrations-image.mjs`;
   await $`node --check scripts/run-migrations.mjs`;
   await $`node --check scripts/install.mjs`;
   await $`node --check scripts/deploy-komodo.mjs`;

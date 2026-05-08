@@ -13,7 +13,15 @@ const encoreDashboardDomain = process.env.ENCORE_DASHBOARD_DOMAIN || "__ENCORE_D
 const encoreDashboardUser = process.env.ENCORE_DASHBOARD_USER || "__ENCORE_DASHBOARD_USER__";
 const encoreDashboardPasswordHash = process.env.ENCORE_DASHBOARD_PASSWORD_HASH || "__ENCORE_DASHBOARD_PASSWORD_HASH_DEFAULT__";
 const encoreDashboardUrl = process.env.ENCORE_DASHBOARD_URL || "__ENCORE_DASHBOARD_URL__";
+const neckDashDomain = process.env.NECK_DASH_DOMAIN || "__NECK_DASH_DOMAIN__";
+const neckDashUser = process.env.NECK_DASH_USER || "__NECK_DASH_USER__";
+const neckDashPasswordHash = process.env.NECK_DASH_PASSWORD_HASH || "__NECK_DASH_PASSWORD_HASH_DEFAULT__";
+const defaultEncoreAuthKey = "__ENCORE_AUTH_KEY_DEFAULT__";
 const registry = "__REGISTRY__";
+const defaultNeckDashImage = "ghcr.io/thetechquant/neck-stack/neckdash:latest";
+const defaultNeckDashUIImage = "ghcr.io/thetechquant/neck-stack/neckdash-ui:latest";
+const defaultVictoriaTracesImage = "victoriametrics/victoria-traces:latest";
+const defaultVictoriaMetricsImage = "victoriametrics/victoria-metrics:latest";
 const prodPlatform = process.env.PROD_PLATFORM || "__PROD_PLATFORM__";
 const komodoServer = "__KOMODO_SERVER__";
 const gitProvider = "__GIT_PROVIDER__";
@@ -46,6 +54,10 @@ function hasDatabases() {
   return resources.databases.length > 0;
 }
 
+function hasPostgres() {
+  return hasDatabases();
+}
+
 function hasCache() {
   return resources.caches.length > 0;
 }
@@ -65,12 +77,21 @@ function renderInfraConfig() {
       app_id: appId,
       env_name: "production",
       env_type: "production",
-      cloud: "self-hosted",
+      cloud: "local",
       base_url: `https://${domain}/api`,
     },
     graceful_shutdown: {
       total: 30,
     },
+    metrics: {
+      type: "prometheus",
+      collection_interval: 15,
+      remote_write_url: { $env: "VICTORIA_METRICS_REMOTE_WRITE_URL" },
+    },
+    used_metrics: resources.metrics.map((metric) => ({
+      name: metric.name,
+      services: metric.services,
+    })),
   };
 
   if (resources.secrets.length > 0) {
@@ -138,7 +159,11 @@ function renderInfraConfig() {
 }
 
 function backendEnvironment() {
-  const env = ["      PORT: 8080"];
+  const env = [
+    "      PORT: 8080",
+    `      ENCORE_AUTH_KEY: ${composeEnv("ENCORE_AUTH_KEY", defaultEncoreAuthKey)}`,
+    "      VICTORIA_METRICS_REMOTE_WRITE_URL: ${VICTORIA_METRICS_REMOTE_WRITE_URL:-http://victoria-metrics:8428/api/v1/write}",
+  ];
 
   if (hasDatabases()) {
     env.push(`      POSTGRES_PASSWORD: ${composeEnv("POSTGRES_PASSWORD", defaultPostgresPassword)}`);
@@ -154,7 +179,10 @@ function backendEnvironment() {
 }
 
 function backendDependsOn() {
-  const deps = [];
+  const deps = [
+    `      neckdash:\n        condition: service_started`,
+    `      victoria-metrics:\n        condition: service_started`,
+  ];
   if (hasDatabases()) {
     deps.push(`      postgres:\n        condition: service_healthy`);
   }
@@ -181,6 +209,9 @@ function renderCompose() {
       ENCORE_DASHBOARD_USER: \${ENCORE_DASHBOARD_USER:-${encoreDashboardUser}}
       ENCORE_DASHBOARD_PASSWORD_HASH: ${composeEnv("ENCORE_DASHBOARD_PASSWORD_HASH", encoreDashboardPasswordHash)}
       ENCORE_DASHBOARD_URL: \${ENCORE_DASHBOARD_URL:-${encoreDashboardUrl}}
+      NECK_DASH_DOMAIN: \${NECK_DASH_DOMAIN:-${neckDashDomain}}
+      NECK_DASH_USER: \${NECK_DASH_USER:-${neckDashUser}}
+      NECK_DASH_PASSWORD_HASH: ${composeEnv("NECK_DASH_PASSWORD_HASH", neckDashPasswordHash)}
     ports:
       - "80:80"
       - "443:443"
@@ -192,6 +223,8 @@ function renderCompose() {
       frontend:
         condition: service_started
       backend:
+        condition: service_started
+      neckdash-ui:
         condition: service_started`,
 `  frontend:
     image: \${FRONTEND_IMAGE:-${registry}/frontend:prod}
@@ -222,9 +255,72 @@ ${backendEnvironment()}
       interval: 15s
       timeout: 5s
       retries: 8`,
+`  neckdash:
+    image: \${NECKDASH_IMAGE:-${defaultNeckDashImage}}
+    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
+    restart: unless-stopped
+    environment:
+      PORT: 8080
+      ENCORE_AUTH_KEY: ${composeEnv("ENCORE_AUTH_KEY", defaultEncoreAuthKey)}
+      NECKDASH_REQUIRE_TRACE_AUTH: \${NECKDASH_REQUIRE_TRACE_AUTH:-true}
+      VICTORIA_TRACES_OTLP_URL: \${VICTORIA_TRACES_OTLP_URL:-http://victoria-traces:10428/insert/opentelemetry/v1/traces}
+      VICTORIA_TRACES_QUERY_URL: \${VICTORIA_TRACES_QUERY_URL:-http://victoria-traces:10428/select/jaeger}
+      VICTORIA_METRICS_IMPORT_URL: \${VICTORIA_METRICS_IMPORT_URL:-http://victoria-metrics:8428/api/v1/import/prometheus}
+      VICTORIA_METRICS_QUERY_URL: \${VICTORIA_METRICS_QUERY_URL:-http://victoria-metrics:8428/api/v1/query}
+      NECKDASH_META_PATH: /catalog/meta.json
+      NECKDASH_OPENAPI_PATH: /catalog/openapi.json
+    expose:
+      - "8080"
+    volumes:
+      - ./encore/meta.json:/catalog/meta.json:ro
+      - ../docs/openapi.json:/catalog/openapi.json:ro
+    depends_on:
+      victoria-traces:
+        condition: service_started
+      victoria-metrics:
+        condition: service_started`,
+`  neckdash-ui:
+    image: \${NECKDASH_UI_IMAGE:-${defaultNeckDashUIImage}}
+    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
+    restart: unless-stopped
+    environment:
+      NUXT_PUBLIC_NECKDASH_API_BASE_URL: \${NUXT_PUBLIC_NECKDASH_API_BASE_URL:-/api}
+      NUXT_NECKDASH_API_INTERNAL_BASE_URL: \${NUXT_NECKDASH_API_INTERNAL_BASE_URL:-http://neckdash:8080}
+      PORT: 3000
+      HOST: 0.0.0.0
+    expose:
+      - "3000"
+    depends_on:
+      neckdash:
+        condition: service_started`,
+`  victoria-traces:
+    image: \${VICTORIA_TRACES_IMAGE:-${defaultVictoriaTracesImage}}
+    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
+    restart: unless-stopped
+    command:
+      - -httpListenAddr=:10428
+      - -storageDataPath=/victoria-traces-data
+      - -retentionPeriod=\${VICTORIA_TRACES_RETENTION:-30d}
+      - -servicegraph.enableTask=true
+    volumes:
+      - victoria_traces_data:/victoria-traces-data
+    expose:
+      - "10428"`,
+`  victoria-metrics:
+    image: \${VICTORIA_METRICS_IMAGE:-${defaultVictoriaMetricsImage}}
+    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
+    restart: unless-stopped
+    command:
+      - -httpListenAddr=:8428
+      - -storageDataPath=/victoria-metrics-data
+      - -retentionPeriod=\${VICTORIA_METRICS_RETENTION:-90d}
+    volumes:
+      - victoria_metrics_data:/victoria-metrics-data
+    expose:
+      - "8428"`,
   ];
 
-  if (hasDatabases()) {
+  if (hasPostgres()) {
     const postgresPassword = composeEnv("POSTGRES_PASSWORD", defaultPostgresPassword);
     services.push(
 `  migrations:
@@ -317,8 +413,8 @@ ${backendEnvironment()}
         condition: service_healthy`);
   }
 
-  const volumes = ["  caddy_data:", "  caddy_config:"];
-  if (hasDatabases()) volumes.push("  postgres_data:");
+  const volumes = ["  caddy_data:", "  caddy_config:", "  victoria_traces_data:", "  victoria_metrics_data:"];
+  if (hasPostgres()) volumes.push("  postgres_data:");
   if (hasCache()) volumes.push("  redis_data:");
   if (hasPubSub()) volumes.push("  nsq_data:");
 
@@ -334,27 +430,45 @@ function komodoEnvLines() {
     `ENCORE_DASHBOARD_USER = ${encoreDashboardUser}`,
     `ENCORE_DASHBOARD_PASSWORD_HASH = ${encoreDashboardPasswordHash}`,
     `ENCORE_DASHBOARD_URL = ${encoreDashboardUrl}`,
+    `NECK_DASH_DOMAIN = ${neckDashDomain}`,
+    `NECK_DASH_USER = ${neckDashUser}`,
+    `NECK_DASH_PASSWORD_HASH = ${neckDashPasswordHash}`,
+    `ENCORE_AUTH_KEY = ${defaultEncoreAuthKey}`,
+    "NECKDASH_REQUIRE_TRACE_AUTH = true",
     "NUXT_PUBLIC_ENCORE_TOOLBAR = true",
     "NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME = production",
     "NUXT_PUBLIC_API_BASE_URL = /api",
     "NUXT_API_INTERNAL_BASE_URL = http://backend:8080",
+    "NUXT_PUBLIC_NECKDASH_API_BASE_URL = /api",
+    "NUXT_NECKDASH_API_INTERNAL_BASE_URL = http://neckdash:8080",
+    "VICTORIA_TRACES_OTLP_URL = http://victoria-traces:10428/insert/opentelemetry/v1/traces",
+    "VICTORIA_TRACES_QUERY_URL = http://victoria-traces:10428/select/jaeger",
+    "VICTORIA_TRACES_RETENTION = 30d",
+    "VICTORIA_METRICS_IMPORT_URL = http://victoria-metrics:8428/api/v1/import/prometheus",
+    "VICTORIA_METRICS_QUERY_URL = http://victoria-metrics:8428/api/v1/query",
+    "VICTORIA_METRICS_REMOTE_WRITE_URL = http://victoria-metrics:8428/api/v1/write",
+    "VICTORIA_METRICS_RETENTION = 90d",
     `PROD_PLATFORM = ${prodPlatform}`,
     "",
   ];
 
-  if (hasDatabases()) {
+  if (hasPostgres()) {
     lines.push(`POSTGRES_USER = ${postgresUser}`);
   }
   for (const secret of resources.secrets) {
     lines.push(`${secret} = [[${secret}]]`);
   }
-  if (hasDatabases() || hasCache() || resources.secrets.length > 0) {
+  if (hasPostgres() || hasCache() || resources.secrets.length > 0) {
     lines.push("");
   }
 
   lines.push(`BACKEND_IMAGE = ${registry}/backend:prod`);
   lines.push(`FRONTEND_IMAGE = ${registry}/frontend:prod`);
-  if (hasDatabases()) {
+  lines.push(`NECKDASH_IMAGE = ${defaultNeckDashImage}`);
+  lines.push(`NECKDASH_UI_IMAGE = ${defaultNeckDashUIImage}`);
+  lines.push(`VICTORIA_TRACES_IMAGE = ${defaultVictoriaTracesImage}`);
+  lines.push(`VICTORIA_METRICS_IMAGE = ${defaultVictoriaMetricsImage}`);
+  if (hasPostgres()) {
     lines.push(`MIGRATIONS_IMAGE = ${registry}/migrations:prod`);
   }
 
@@ -437,7 +551,7 @@ file_contents = '''${fileContents}'''`;
 
 function renderKomodoResources() {
   const ignoreServices = [];
-  if (hasDatabases()) ignoreServices.push("migrations");
+  if (hasPostgres()) ignoreServices.push("migrations");
   if (hasCrons()) ignoreServices.push("cron-runner");
   const ignoreServicesLine = ignoreServices.length > 0
     ? `ignore_services = [${ignoreServices.map(tomlString).join(", ")}]\n`
@@ -463,7 +577,7 @@ ${ignoreServicesLine}environment = """\n${komodoEnvLines()}\n"""
 `;
 
   const actions = [
-    hasDatabases() ? renderMigrationAction() : "",
+    hasPostgres() ? renderMigrationAction() : "",
     ...resources.crons.map(renderCronAction),
   ].filter(Boolean);
 
@@ -477,11 +591,12 @@ async function writeGeneratedFile(outputPath, contents) {
 }
 
 await writeGeneratedFile(path.resolve("deploy/encore/infra.prod.json"), renderInfraConfig());
+await writeGeneratedFile(path.resolve("deploy/encore/meta.json"), `${JSON.stringify(resources.metadata, null, 2)}\n`);
 await writeGeneratedFile(path.resolve("deploy/compose.yaml"), renderCompose());
 await writeGeneratedFile(path.resolve("deploy/komodo/resources.toml"), renderKomodoResources());
 
 console.log(chalk.dim(`source=${resources.source}`));
-console.log(chalk.dim(`databases=${resources.databases.length} caches=${resources.caches.length} topics=${resources.topics.length} buckets=${resources.buckets.length} crons=${resources.crons.length} secrets=${resources.secrets.length}`));
+console.log(chalk.dim(`services=${resources.services.length} databases=${resources.databases.length} caches=${resources.caches.length} topics=${resources.topics.length} buckets=${resources.buckets.length} crons=${resources.crons.length} secrets=${resources.secrets.length}`));
 
 if (resources.buckets.length > 0) {
   console.warn(chalk.yellow("Bucket resources were detected. NECK does not provision S3/MinIO; configure external S3/R2/GCS object_storage in deploy/encore/infra.prod.json."));

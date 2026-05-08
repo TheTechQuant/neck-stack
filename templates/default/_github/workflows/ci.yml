@@ -47,8 +47,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    outputs:
-      has_databases: ${{ steps.infra.outputs.has_databases }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -95,11 +93,12 @@ jobs:
               ;;
           esac
       - name: Generate Encore infra
-        id: infra
+        run: pnpm infra:encore
+      - name: Detect SQL resources
+        id: sql
         run: |
-          pnpm infra:encore
-          HAS_DATABASES="$(node -e "const c=JSON.parse(require('node:fs').readFileSync('deploy/encore/infra.prod.json','utf8')); process.stdout.write(c.sql_servers?.length ? 'true' : 'false')")"
-          echo "has_databases=$HAS_DATABASES" >> "$GITHUB_OUTPUT"
+          has_sql="$(node -e 'const fs=require("fs"); const infra=JSON.parse(fs.readFileSync("deploy/encore/infra.prod.json","utf8")); console.log(Array.isArray(infra.sql_servers)&&infra.sql_servers.some((s)=>Object.keys(s.databases||{}).length>0)?"true":"false")')"
+          echo "has_sql=${has_sql}" >> "$GITHUB_OUTPUT"
       - name: Generate API artifacts
         run: pnpm api:gen
       - name: Build backend image
@@ -116,7 +115,7 @@ jobs:
             --build-arg NUXT_PUBLIC_ENCORE_TOOLBAR_SRC="${NUXT_PUBLIC_ENCORE_TOOLBAR_SRC:-}" \
             -t "$FRONTEND_IMAGE" .
       - name: Build migrations image
-        if: steps.infra.outputs.has_databases == 'true'
+        if: steps.sql.outputs.has_sql == 'true'
         run: docker build --platform "${{ steps.platform.outputs.platform }}" -f deploy/migrations/Dockerfile -t "$MIGRATIONS_IMAGE" .
       - name: Push images
         run: |
@@ -126,18 +125,20 @@ jobs:
           docker tag "$FRONTEND_IMAGE" "$REGISTRY_IMAGE/frontend:prod"
           docker push "$REGISTRY_IMAGE/backend:prod"
           docker push "$REGISTRY_IMAGE/frontend:prod"
-      - name: Push migrations image
-        if: steps.infra.outputs.has_databases == 'true'
-        run: |
-          docker push "$MIGRATIONS_IMAGE"
-          docker tag "$MIGRATIONS_IMAGE" "$REGISTRY_IMAGE/migrations:prod"
-          docker push "$REGISTRY_IMAGE/migrations:prod"
+          if [ "${{ steps.sql.outputs.has_sql }}" = "true" ]; then
+            docker push "$MIGRATIONS_IMAGE"
+            docker tag "$MIGRATIONS_IMAGE" "$REGISTRY_IMAGE/migrations:prod"
+            docker push "$REGISTRY_IMAGE/migrations:prod"
+          else
+            echo "No SQLDatabase resources; skipping migration image push."
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: generated-deploy
           retention-days: 7
           path: |
             deploy/encore/infra.prod.json
+            deploy/encore/meta.json
             deploy/compose.yaml
             deploy/komodo/resources.toml
 

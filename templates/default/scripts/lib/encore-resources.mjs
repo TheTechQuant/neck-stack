@@ -104,6 +104,46 @@ function metadataEndpoint(meta, qualifiedName) {
 }
 
 function resourcesFromMetadata(meta, backendDir) {
+  const services = (meta.svcs || []).map((service) => ({
+    name: service.name,
+    relPath: service.rel_path || service.name,
+    endpoints: (service.rpcs || []).map((rpc) => ({
+      service: service.name,
+      name: rpc.name,
+      doc: rpc.doc || "",
+      path: pathToString(rpc.path),
+      method: rpc.http_methods?.[0] || "POST",
+      exposed: Boolean(rpc.expose && Object.keys(rpc.expose).length > 0),
+      allowUnauthenticated: Boolean(rpc.allow_unauthenticated),
+      streamingRequest: Boolean(rpc.streaming_request),
+      streamingResponse: Boolean(rpc.streaming_response),
+    })),
+    metrics: service.metrics || [],
+    declaredIn: "encore metadata",
+  }));
+
+  const metricServices = new Map();
+  for (const service of services) {
+    for (const metric of service.metrics) {
+      const list = metricServices.get(metric) || [];
+      list.push(service.name);
+      metricServices.set(metric, list);
+    }
+  }
+
+  const metrics = (meta.metrics || []).map((metric) => ({
+    name: metric.name,
+    kind: String(metric.kind || "counter").toLowerCase(),
+    doc: metric.doc || "",
+    serviceName: metric.service_name || "",
+    services: metric.service_name ? [metric.service_name] : (metricServices.get(metric.name) || []),
+    labels: (metric.labels || []).map((label) => ({
+      key: label.key,
+      doc: label.doc || "",
+    })),
+    declaredIn: "encore metadata",
+  }));
+
   const databases = (meta.sql_databases || []).map((database) => ({
     name: database.name,
     migrations: database.migration_rel_path || "",
@@ -147,12 +187,15 @@ function resourcesFromMetadata(meta, backendDir) {
   return {
     backendDir,
     source: "encore-metadata",
+    metadata: meta,
+    services,
     databases,
     caches,
     buckets,
     topics,
     crons,
     secrets,
+    metrics,
   };
 }
 
@@ -204,12 +247,23 @@ export async function discoverEncoreResources(backendDir = process.env.BACKEND_D
   const secrets = [];
   const topicVars = new Map();
   const apiVarsByFile = new Map();
+  const servicesByName = new Map();
 
   for (const file of files) {
     const source = await fs.readFile(file, "utf8");
     const relFile = slash(path.relative(root, file));
     const fileDir = path.dirname(file);
     parseApiDefinitions(apiVarsByFile, root, source, relFile);
+    const serviceName = relFile.split("/")[0];
+    if (!servicesByName.has(serviceName)) {
+      servicesByName.set(serviceName, {
+        name: serviceName,
+        relPath: serviceName,
+        endpoints: [],
+        metrics: [],
+        declaredIn: "source scan",
+      });
+    }
 
     for (const match of source.matchAll(/new\s+SQLDatabase\s*\(\s*["'`]([^"'`]+)["'`]\s*,\s*\{([\s\S]*?)\}\s*\)/g)) {
       const migrationsMatch = match[2].match(/migrations\s*:\s*["'`]([^"'`]+)["'`]/);
@@ -283,15 +337,66 @@ export async function discoverEncoreResources(backendDir = process.env.BACKEND_D
     }
   }
 
+  for (const apiVars of apiVarsByFile.values()) {
+    for (const apiInfo of apiVars.values()) {
+      const service = servicesByName.get(apiInfo.service);
+      if (service && !service.endpoints.some((endpoint) => endpoint.name === apiInfo.name)) {
+        service.endpoints.push({
+          service: apiInfo.service,
+          name: apiInfo.name,
+          path: apiInfo.path,
+          method: apiInfo.method,
+          exposed: true,
+          allowUnauthenticated: true,
+          streamingRequest: false,
+          streamingResponse: false,
+          declaredIn: apiInfo.declaredIn,
+        });
+      }
+    }
+  }
+
+  const services = [...servicesByName.values()]
+    .filter((service) => service.endpoints.length > 0)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   return {
     backendDir: root,
     source: "source-scan",
+    metadata: {
+      app_revision: "",
+      svcs: services.map((service) => ({
+        name: service.name,
+        rel_path: service.relPath,
+        rpcs: service.endpoints.map((endpoint) => ({
+          name: endpoint.name,
+          doc: "",
+          service_name: service.name,
+          http_methods: [endpoint.method],
+          allow_unauthenticated: endpoint.allowUnauthenticated,
+          expose: endpoint.exposed ? { "api-gateway": {} } : {},
+          streaming_request: endpoint.streamingRequest,
+          streaming_response: endpoint.streamingResponse,
+        })),
+        metrics: [],
+      })),
+      gateways: [{ encore_name: "api-gateway" }],
+      pkgs: services.map((service) => ({ name: service.name, rel_path: service.relPath, secrets: [] })),
+      pubsub_topics: topics,
+      cache_clusters: caches,
+      sql_databases: databases.map((database) => ({ name: database.name, migration_rel_path: database.migrations })),
+      cron_jobs: crons,
+      buckets,
+      metrics: [],
+    },
+    services,
     databases,
     caches,
     buckets,
     topics,
     crons,
     secrets,
+    metrics: [],
   };
 }
 

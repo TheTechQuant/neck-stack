@@ -9,7 +9,7 @@
 		reverse_proxy backend:8080
 	}
 
-	handle /__encore/* {
+	handle /__encore/healthz {
 		reverse_proxy backend:8080
 	}
 
@@ -24,4 +24,19 @@
 		{$ENCORE_DASHBOARD_USER} {$ENCORE_DASHBOARD_PASSWORD_HASH}
 	}
 	redir {$ENCORE_DASHBOARD_URL} 302
+}
+
+{$NECK_DASH_DOMAIN} {
+	encode zstd gzip
+	basic_auth {
+		{$NECK_DASH_USER} {$NECK_DASH_PASSWORD_HASH}
+	}
+
+	handle_path /api/* {
+		reverse_proxy neckdash:8080
+	}
+
+	handle {
+		reverse_proxy neckdash-ui:3000
+	}
 }

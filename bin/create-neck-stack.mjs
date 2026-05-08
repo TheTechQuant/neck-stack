@@ -24,6 +24,9 @@ function createProgram() {
     .option("--dashboard-user <user>", "basic-auth user for Encore dashboard redirect")
     .option("--dashboard-url <url>", "target URL for the protected Encore dashboard redirect")
     .option("--dashboard-password <value>", "basic-auth password for Encore dashboard redirect")
+    .option("--neckdash-domain <domain>", "basic-auth protected self-hosted NECK Dash domain")
+    .option("--neckdash-user <user>", "basic-auth user for NECK Dash")
+    .option("--neckdash-password <value>", "basic-auth password for NECK Dash")
     .option("--caddy-email <email>", "ACME email for Caddy certificates")
     .option("--gitlab-project <path>", "GitLab project path, e.g. group/app")
     .option("--registry <registry>", "container image registry/repository")
@@ -244,9 +247,11 @@ async function main() {
   }
   const domain = await promptValue("Frontend domain", options.domain || defaultDomain, yes);
   const dashboardDomain = await promptValue("Encore dashboard domain", options.dashboardDomain || `encore.${domain}`, yes);
+  const neckDashDomain = await promptValue("NECK Dash domain", options.neckdashDomain || `dash.${domain}`, yes);
   const caddyAcmeEmail = await promptValue("Caddy ACME email", options.caddyEmail || `admin@${domain}`, yes);
   const dashboardUser = await promptValue("Encore dashboard user", options.dashboardUser || "admin", yes);
   const dashboardUrl = await promptValue("Encore dashboard redirect URL", options.dashboardUrl || `https://app.encore.cloud/${appSlug}`, yes);
+  const neckDashUser = await promptValue("NECK Dash user", options.neckdashUser || "admin", yes);
 
   if (!yes) {
     section("Deployment");
@@ -277,6 +282,8 @@ async function main() {
   const force = options.force === true;
   const dashboardPassword = options.dashboardPassword || secretToken();
   const dashboardPasswordHash = bcrypt.hashSync(dashboardPassword, 12);
+  const neckDashPassword = options.neckdashPassword || secretToken();
+  const neckDashPasswordHash = bcrypt.hashSync(neckDashPassword, 12);
 
   section("Scaffolding");
   step(`Target: ${target}`);
@@ -296,6 +303,11 @@ async function main() {
     ENCORE_DASHBOARD_DOMAIN: dashboardDomain,
     ENCORE_DASHBOARD_USER: dashboardUser,
     ENCORE_DASHBOARD_URL: dashboardUrl,
+    NECK_DASH_PASSWORD_DEFAULT: neckDashPassword,
+    NECK_DASH_PASSWORD_HASH_DEFAULT: neckDashPasswordHash,
+    NECK_DASH_DOMAIN: neckDashDomain,
+    NECK_DASH_USER: neckDashUser,
+    ENCORE_AUTH_KEY_DEFAULT: secretToken(),
     CADDY_ACME_EMAIL: caddyAcmeEmail,
     DOMAIN: domain,
     REGISTRY: registry.replace(/\/+$/g, ""),

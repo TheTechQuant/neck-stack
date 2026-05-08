@@ -43,14 +43,21 @@ if (!skipInfra) {
   await $`pnpm infra:encore`;
 }
 
-const infra = JSON.parse(await fs.readFile("deploy/encore/infra.prod.json", "utf8"));
-const hasDatabases = Boolean(infra.sql_servers?.length);
-
 function webhookEnv(name) {
   const value = process.env[name];
   if (!value && dryRun) return `<${name}>`;
   if (!value) throw new Error(`Missing ${name}. Set it to the Komodo webhook URL.`);
   return value;
+}
+
+async function hasGeneratedSQLDatabases() {
+  try {
+    const raw = await fs.readFile("deploy/encore/infra.prod.json", "utf8");
+    const infra = JSON.parse(raw);
+    return Array.isArray(infra.sql_servers) && infra.sql_servers.some((server) => Object.keys(server.databases || {}).length > 0);
+  } catch {
+    return false;
+  }
 }
 
 async function postWebhook(name, url) {
@@ -67,12 +74,14 @@ async function postWebhook(name, url) {
   }
 }
 
-if (!deployOnly && hasDatabases && !skipMigrations) {
+const hasSQLDatabases = await hasGeneratedSQLDatabases();
+
+if (!deployOnly && !skipMigrations && hasSQLDatabases) {
   await postWebhook("Komodo migration action", webhookEnv("KOMODO_MIGRATE_WEBHOOK_URL"));
-} else if (!deployOnly && hasDatabases && skipMigrations) {
+} else if (!deployOnly && !skipMigrations && !hasSQLDatabases) {
+  console.log(chalk.dim("Skipping migrations because no SQLDatabase resources were detected."));
+} else if (!deployOnly && skipMigrations) {
   console.log(chalk.yellow("Skipping migrations because --skip-migrations was provided."));
-} else if (!deployOnly) {
-  console.log(chalk.dim("No Encore SQLDatabase declarations; skipping migration action."));
 }
 
 if (!migrateOnly) {

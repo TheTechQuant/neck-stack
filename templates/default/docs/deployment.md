@@ -7,7 +7,7 @@ Production deploys are designed for a server managed by Komodo.
 1. CI runs `pnpm check`.
 2. CI runs `pnpm infra:encore` and reads Encore metadata.
 3. CI builds and pushes backend and frontend images.
-4. If SQL databases exist, CI builds and pushes the migration image.
+4. CI builds and pushes the migration image when SQL databases exist.
 5. CI calls the Komodo migration webhook when SQL databases exist.
 6. CI calls the Komodo stack deploy webhook.
 
@@ -22,6 +22,7 @@ NECK intentionally keeps deploy configuration compact:
 - `deploy/compose.yaml`: generated runtime stack.
 - `deploy/komodo/resources.toml`: generated Komodo import.
 - `deploy/encore/infra.prod.json`: generated Encore self-hosted infra config.
+- `deploy/encore/meta.json`: generated Encore metadata for NECK Dash catalog views.
 
 There is no `infra.prod.example.json`. The generated `infra.prod.json` is explicit and reproducible from Encore metadata, so a hand-maintained example would drift.
 
@@ -52,6 +53,8 @@ Services are provisioned only when used:
 - No `CronJob`: no cron runner actions.
 - `Bucket` resources are detected but not provisioned.
 
+NECK Dash always runs with the published `neckdash` and `neckdash-ui` images plus VictoriaTraces and VictoriaMetrics. That keeps trace storage separate from app Postgres and avoids copying dashboard source into application repos.
+
 Object storage should be external. Use S3, Cloudflare R2, GCS, or another managed provider and wire the Encore infra config accordingly.
 
 ## Secrets And Passwords
@@ -64,6 +67,9 @@ Relevant variables:
 - `REDIS_PASSWORD`, only when cache exists.
 - Encore `secret(...)` declarations, by exact secret name.
 - `ENCORE_DASHBOARD_PASSWORD_HASH`, for the protected dashboard redirect.
+- `NECK_DASH_PASSWORD_HASH`, for the protected NECK Dash UI.
+- `ENCORE_AUTH_KEY`, shared by the Encore runtime trace signer and NECK Dash receiver.
+- `VICTORIA_METRICS_REMOTE_WRITE_URL`, used by Encore's Prometheus remote-write metrics exporter. Defaults to the private VictoriaMetrics service.
 
 To generate a new Caddy-compatible dashboard hash:
 
@@ -81,7 +87,27 @@ Caddy exposes `ENCORE_DASHBOARD_DOMAIN` and protects it with HTTP Basic Auth:
 - `ENCORE_DASHBOARD_PASSWORD_HASH`, generated at scaffold time.
 - `ENCORE_DASHBOARD_URL`, default `https://app.encore.cloud/__APP_ID__`.
 
-This is a protected redirect to Encore Cloud, not the local development dashboard. The local dashboard belongs to `encore run`; production traces and logs should be viewed in Encore Cloud or the observability backend you configure.
+This is a protected redirect to Encore Cloud, not the local development dashboard. The local dashboard belongs to `encore run`.
+
+## NECK Dash
+
+Caddy exposes `NECK_DASH_DOMAIN` and protects it with HTTP Basic Auth:
+
+- `NECK_DASH_USER`, default `admin`.
+- `NECK_DASH_PASSWORD_HASH`, generated at scaffold time.
+
+The generated Encore infra config enables the official Prometheus remote-write metrics provider with `VICTORIA_METRICS_REMOTE_WRITE_URL`. That path carries Encore runtime metrics such as request counters and memory gauges, plus any custom metrics declared with `encore.dev/metrics`. NECK Dash queries VictoriaMetrics for request metrics, runtime metrics, and custom metric samples.
+
+NECK Dash also ships a `/trace` ingestion adapter that validates Encore trace signatures, converts Encore trace streams to OpenTelemetry JSON, and forwards them to VictoriaTraces. The generated template keeps this out of the app runtime config and only uses Encore-supported self-hosted infra primitives by default.
+
+Default images:
+
+- `ghcr.io/thetechquant/neck-stack/neckdash:latest`
+- `ghcr.io/thetechquant/neck-stack/neckdash-ui:latest`
+- `victoriametrics/victoria-traces:latest`
+- `victoriametrics/victoria-metrics:latest`
+
+Retention is controlled by `VICTORIA_TRACES_RETENTION` and `VICTORIA_METRICS_RETENTION`.
 
 ## Target Architecture
 

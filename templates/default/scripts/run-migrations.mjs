@@ -58,7 +58,7 @@ function ensureDatabase(dbName) {
 const resources = await discoverEncoreResources(backendDir);
 
 if (resources.databases.length === 0) {
-  console.log("no Encore SQLDatabase declarations found");
+  console.log("no application SQLDatabase declarations found");
   process.exit(0);
 }
 
@@ -67,28 +67,31 @@ if (!databaseUrl) {
   process.exit(1);
 }
 
-for (const database of resources.databases) {
-  const migrationsDir = path.resolve(resources.backendDir, database.migrations);
+async function migrateDatabase(dbName, migrationsDir) {
   if (!fs.existsSync(migrationsDir)) {
-    throw new Error(`migrations directory not found for ${database.name}: ${migrationsDir}`);
+    throw new Error(`migrations directory not found for ${dbName}: ${migrationsDir}`);
   }
 
-  ensureDatabase(database.name);
+  ensureDatabase(dbName);
 
-  console.log(`migrating ${database.name} from ${path.relative(process.cwd(), migrationsDir)}`);
+  console.log(`migrating ${dbName} from ${path.relative(process.cwd(), migrationsDir)}`);
   try {
     run("migrate", [
       "-source",
       `file://${migrationsDir}`,
       "-database",
-      databaseUrlFor(database.name),
+      databaseUrlFor(dbName),
       "up",
     ]);
   } catch (error) {
     if (String(error?.stderr || error?.message || "").toLowerCase().includes("no change")) {
-      console.log(`${database.name}: no migration changes`);
-      continue;
+      console.log(`${dbName}: no migration changes`);
+      return;
     }
     throw error;
   }
+}
+
+for (const database of resources.databases) {
+  await migrateDatabase(database.name, path.resolve(resources.backendDir, database.migrations));
 }

@@ -59,14 +59,17 @@ pnpm deploy:komodo
 Production is driven by Encore metadata:
 
 - Caddy serves Nuxt on `DOMAIN` and proxies `/api/*` to Encore, so the frontend and backend share one public host.
-- `SQLDatabase` declarations add private Postgres, migration image/action, and `encoredotdev/postgres`.
+- NECK Dash is served on `NECK_DASH_DOMAIN` with Basic Auth and receives backend traces at `http://neckdash:8080/trace` inside Compose.
+- NECK Dash uses published `ghcr.io/thetechquant/neck-stack/neckdash` and `ghcr.io/thetechquant/neck-stack/neckdash-ui` images.
+- VictoriaTraces is included for trace storage; VictoriaMetrics stores Encore runtime metrics and custom app metrics through Encore's Prometheus remote-write primitive.
+- `SQLDatabase` declarations add private Postgres with `encoredotdev/postgres` plus app migrations.
 - `CacheCluster` declarations add private Redis.
 - `Topic` and `Subscription` declarations add NSQ.
 - `CronJob` declarations add Komodo scheduled actions that call the Encore cron endpoints.
 - `secret(...)` declarations become required environment entries.
 - `Bucket` declarations are detected but not provisioned; use external S3/R2/GCS.
 
-`pnpm infra:encore` is the only source of generated production config. It writes `deploy/encore/infra.prod.json`, `deploy/compose.yaml`, and `deploy/komodo/resources.toml`; there is no separate static example infra file to keep in sync.
+`pnpm infra:encore` is the only source of generated production config. It writes `deploy/encore/infra.prod.json`, `deploy/encore/meta.json`, `deploy/compose.yaml`, and `deploy/komodo/resources.toml`; there is no separate static example infra file to keep in sync.
 
 GitLab and GitHub CI both run validate, image build, migration, and Komodo deploy stages. They generate the frontend client/OpenAPI before frontend builds and trigger migrations after images are built but before the Komodo stack deploy webhook.
 
@@ -77,6 +80,10 @@ See [docs/deployment.md](docs/deployment.md) for CI variables, Komodo setup, das
 ## Encore Dashboard
 
 `ENCORE_DASHBOARD_DOMAIN` is served by Caddy with HTTP Basic Auth and redirects to `ENCORE_DASHBOARD_URL`, defaulting to the Encore Cloud app page. The generated password and bcrypt hash are in `.env.example`; override the hash in Komodo or server `.env` before deploying.
+
+## NECK Dash
+
+`NECK_DASH_DOMAIN` is the default production observability UI. The backend exports Encore metrics to VictoriaMetrics with the official Prometheus remote-write infra primitive. NECK Dash queries built-in and custom metrics from VictoriaMetrics and reads flow, service catalog, and OpenAPI data from `/api` on the dashboard host. The sidecar also includes a trace ingestion endpoint for deployments that explicitly configure Encore trace export.
 
 ## More Docs
 

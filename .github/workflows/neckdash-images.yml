@@ -1,0 +1,105 @@
+name: neckdash-images
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+
+      - name: Install Encore
+        run: |
+          curl -fsSL https://encore.dev/install.sh -o /tmp/install-encore.sh
+          bash /tmp/install-encore.sh
+          echo "$HOME/.encore/bin" >> "$GITHUB_PATH"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64,amd64
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Resolve image names
+        id: vars
+        run: |
+          registry_image="$(echo "ghcr.io/${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          echo "neckdash_sha=${registry_image}/neckdash:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "neckdash_latest=${registry_image}/neckdash:latest" >> "$GITHUB_OUTPUT"
+          echo "neckdash_sha_amd64=${registry_image}/neckdash:${GITHUB_SHA}-amd64" >> "$GITHUB_OUTPUT"
+          echo "neckdash_sha_arm64=${registry_image}/neckdash:${GITHUB_SHA}-arm64" >> "$GITHUB_OUTPUT"
+          echo "ui_sha=${registry_image}/neckdash-ui:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "ui_latest=${registry_image}/neckdash-ui:latest" >> "$GITHUB_OUTPUT"
+
+      - name: Test NECK Dash
+        run: pnpm test:neckdash
+
+      - name: Typecheck NECK Dash UI
+        run: pnpm --filter neckdash-ui typecheck
+
+      - name: Build and push NECK Dash image variants
+        run: |
+          cd neckdash
+          encore build docker \
+            --os linux \
+            --arch amd64 \
+            --config infra.prod.json \
+            "${{ steps.vars.outputs.neckdash_sha_amd64 }}"
+          docker push "${{ steps.vars.outputs.neckdash_sha_amd64 }}"
+
+          encore build docker \
+            --os linux \
+            --arch arm64 \
+            --config infra.prod.json \
+            "${{ steps.vars.outputs.neckdash_sha_arm64 }}"
+          docker push "${{ steps.vars.outputs.neckdash_sha_arm64 }}"
+
+      - name: Publish NECK Dash multi-arch manifests
+        run: |
+          docker buildx imagetools create \
+            -t "${{ steps.vars.outputs.neckdash_sha }}" \
+            "${{ steps.vars.outputs.neckdash_sha_amd64 }}" \
+            "${{ steps.vars.outputs.neckdash_sha_arm64 }}"
+
+          docker buildx imagetools create \
+            -t "${{ steps.vars.outputs.neckdash_latest }}" \
+            "${{ steps.vars.outputs.neckdash_sha_amd64 }}" \
+            "${{ steps.vars.outputs.neckdash_sha_arm64 }}"
+
+      - name: Build and push NECK Dash UI multi-arch image
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            -f neckdash-ui/Dockerfile \
+            --build-arg NUXT_PUBLIC_NECKDASH_API_BASE_URL="/api" \
+            --build-arg NUXT_NECKDASH_API_INTERNAL_BASE_URL="http://neckdash:8080" \
+            -t "${{ steps.vars.outputs.ui_sha }}" \
+            -t "${{ steps.vars.outputs.ui_latest }}" \
+            --push \
+            .

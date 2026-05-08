@@ -10,8 +10,11 @@ services:
       CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:-__CADDY_ACME_EMAIL__}
       ENCORE_DASHBOARD_DOMAIN: ${ENCORE_DASHBOARD_DOMAIN:-__ENCORE_DASHBOARD_DOMAIN__}
       ENCORE_DASHBOARD_USER: ${ENCORE_DASHBOARD_USER:-__ENCORE_DASHBOARD_USER__}
-      ENCORE_DASHBOARD_PASSWORD_HASH: ${ENCORE_DASHBOARD_PASSWORD_HASH:-__ENCORE_DASHBOARD_PASSWORD_HASH_COMPOSE_DEFAULT__}
+      ENCORE_DASHBOARD_PASSWORD_HASH: ${ENCORE_DASHBOARD_PASSWORD_HASH:-__ENCORE_DASHBOARD_PASSWORD_HASH_DEFAULT__}
       ENCORE_DASHBOARD_URL: ${ENCORE_DASHBOARD_URL:-__ENCORE_DASHBOARD_URL__}
+      NECK_DASH_DOMAIN: ${NECK_DASH_DOMAIN:-__NECK_DASH_DOMAIN__}
+      NECK_DASH_USER: ${NECK_DASH_USER:-__NECK_DASH_USER__}
+      NECK_DASH_PASSWORD_HASH: ${NECK_DASH_PASSWORD_HASH:-__NECK_DASH_PASSWORD_HASH_DEFAULT__}
     ports:
       - "80:80"
       - "443:443"
@@ -23,6 +26,8 @@ services:
       frontend:
         condition: service_started
       backend:
+        condition: service_started
+      neckdash-ui:
         condition: service_started
 
   frontend:
@@ -48,14 +53,90 @@ services:
     restart: unless-stopped
     environment:
       PORT: 8080
+      ENCORE_AUTH_KEY: ${ENCORE_AUTH_KEY:-__ENCORE_AUTH_KEY_DEFAULT__}
+      VICTORIA_METRICS_REMOTE_WRITE_URL: ${VICTORIA_METRICS_REMOTE_WRITE_URL:-http://victoria-metrics:8428/api/v1/write}
     expose:
       - "8080"
+    depends_on:
+      neckdash:
+        condition: service_started
+      victoria-metrics:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 15s
       timeout: 5s
       retries: 8
 
+  neckdash:
+    image: ${NECKDASH_IMAGE:-ghcr.io/thetechquant/neck-stack/neckdash:latest}
+    platform: ${PROD_PLATFORM:-__PROD_PLATFORM__}
+    restart: unless-stopped
+    environment:
+      PORT: 8080
+      ENCORE_AUTH_KEY: ${ENCORE_AUTH_KEY:-__ENCORE_AUTH_KEY_DEFAULT__}
+      NECKDASH_REQUIRE_TRACE_AUTH: ${NECKDASH_REQUIRE_TRACE_AUTH:-true}
+      VICTORIA_TRACES_OTLP_URL: ${VICTORIA_TRACES_OTLP_URL:-http://victoria-traces:10428/insert/opentelemetry/v1/traces}
+      VICTORIA_TRACES_QUERY_URL: ${VICTORIA_TRACES_QUERY_URL:-http://victoria-traces:10428/select/jaeger}
+      VICTORIA_METRICS_IMPORT_URL: ${VICTORIA_METRICS_IMPORT_URL:-http://victoria-metrics:8428/api/v1/import/prometheus}
+      VICTORIA_METRICS_QUERY_URL: ${VICTORIA_METRICS_QUERY_URL:-http://victoria-metrics:8428/api/v1/query}
+      NECKDASH_META_PATH: /catalog/meta.json
+      NECKDASH_OPENAPI_PATH: /catalog/openapi.json
+    expose:
+      - "8080"
+    volumes:
+      - ./encore/meta.json:/catalog/meta.json:ro
+      - ../docs/openapi.json:/catalog/openapi.json:ro
+    depends_on:
+      victoria-traces:
+        condition: service_started
+      victoria-metrics:
+        condition: service_started
+
+  neckdash-ui:
+    image: ${NECKDASH_UI_IMAGE:-ghcr.io/thetechquant/neck-stack/neckdash-ui:latest}
+    platform: ${PROD_PLATFORM:-__PROD_PLATFORM__}
+    restart: unless-stopped
+    environment:
+      NUXT_PUBLIC_NECKDASH_API_BASE_URL: ${NUXT_PUBLIC_NECKDASH_API_BASE_URL:-/api}
+      NUXT_NECKDASH_API_INTERNAL_BASE_URL: ${NUXT_NECKDASH_API_INTERNAL_BASE_URL:-http://neckdash:8080}
+      PORT: 3000
+      HOST: 0.0.0.0
+    expose:
+      - "3000"
+    depends_on:
+      neckdash:
+        condition: service_started
+
+  victoria-traces:
+    image: ${VICTORIA_TRACES_IMAGE:-victoriametrics/victoria-traces:latest}
+    platform: ${PROD_PLATFORM:-__PROD_PLATFORM__}
+    restart: unless-stopped
+    command:
+      - -httpListenAddr=:10428
+      - -storageDataPath=/victoria-traces-data
+      - -retentionPeriod=${VICTORIA_TRACES_RETENTION:-30d}
+      - -servicegraph.enableTask=true
+    volumes:
+      - victoria_traces_data:/victoria-traces-data
+    expose:
+      - "10428"
+
+  victoria-metrics:
+    image: ${VICTORIA_METRICS_IMAGE:-victoriametrics/victoria-metrics:latest}
+    platform: ${PROD_PLATFORM:-__PROD_PLATFORM__}
+    restart: unless-stopped
+    command:
+      - -httpListenAddr=:8428
+      - -storageDataPath=/victoria-metrics-data
+      - -retentionPeriod=${VICTORIA_METRICS_RETENTION:-90d}
+    volumes:
+      - victoria_metrics_data:/victoria-metrics-data
+    expose:
+      - "8428"
+
 volumes:
   caddy_data:
   caddy_config:
+  victoria_traces_data:
+  victoria_metrics_data:
