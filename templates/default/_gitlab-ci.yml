@@ -107,7 +107,7 @@ build-images:
       - deploy/neckdash/compose.yaml
       - deploy/neckdash/resources.toml
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_BRANCH == "main" && $KOMODO_WEBHOOK_SECRET'
 
 migrate-prod:
   image: node:24-bookworm
@@ -119,7 +119,7 @@ migrate-prod:
     - pnpm dlx zx scripts/install.mjs --frozen-lockfile
     - pnpm deploy:komodo -- --skip-infra --migrate-only
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_BRANCH == "main" && $KOMODO_WEBHOOK_SECRET'
 
 deploy-komodo:
   stage: deploy
