@@ -92,7 +92,7 @@ func ListTraceServices(ctx context.Context) (*TraceServicesResponse, error) {
 
 // GetTrace returns a raw Jaeger trace payload from VictoriaTraces.
 //
-//encore:api public method=GET path=/traces/:traceID
+//encore:api public method=GET path=/traces/detail/:traceID
 func GetTrace(ctx context.Context, traceID string) (*TraceDetailResponse, error) {
 	var raw json.RawMessage
 	if err := getJSON(ctx, victoriaTracesQueryURL()+"/api/traces/"+url.PathEscape(traceID), &raw); err != nil {

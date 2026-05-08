@@ -204,7 +204,7 @@ watchEffect(() => {
 const { data: traceDetail, refresh: refreshTraceDetail } = await useAsyncData(
   "neckdash-trace-detail",
   () => selectedTrace.value
-    ? api<TraceDetail>(`/traces/${selectedTrace.value.traceId}`)
+    ? api<TraceDetail>(`/traces/detail/${selectedTrace.value.traceId}`)
     : Promise.resolve(null),
   { watch: [selectedTraceID] },
 );
