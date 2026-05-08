@@ -61,7 +61,7 @@ Production is driven by Encore metadata:
 - Caddy serves Nuxt on `DOMAIN` and proxies `/api/*` to Encore, so the frontend and backend share one public host.
 - NECK Dash is served on `NECK_DASH_DOMAIN` with Basic Auth and receives backend traces at `http://neckdash:8080/trace` inside Compose.
 - NECK Dash uses published `ghcr.io/thetechquant/neck-stack/neckdash` and `ghcr.io/thetechquant/neck-stack/neckdash-ui` images.
-- VictoriaTraces is included for trace storage; VictoriaMetrics stores Encore runtime metrics and custom app metrics through Encore's Prometheus remote-write primitive.
+- VictoriaTraces is included for trace storage; VictoriaMetrics stores Encore runtime metrics and custom app metrics through Encore's Prometheus remote-write primitive; VictoriaLogs stores structured `encore.dev/log` events extracted from traces.
 - `SQLDatabase` declarations add private Postgres with `encoredotdev/postgres` plus app migrations.
 - `CacheCluster` declarations add private Redis.
 - `Topic` and `Subscription` declarations add NSQ.
@@ -69,7 +69,7 @@ Production is driven by Encore metadata:
 - `secret(...)` declarations become required environment entries.
 - `Bucket` declarations are detected but not provisioned; use external S3/R2/GCS.
 
-`pnpm infra:encore` is the only source of generated production config. It writes `deploy/encore/infra.prod.json`, `deploy/encore/meta.json`, `deploy/compose.yaml`, and `deploy/komodo/resources.toml`; there is no separate static example infra file to keep in sync.
+`pnpm infra:encore` is the only source of generated production config. It reads `encore debug meta -f json` and writes `deploy/encore/infra.prod.json`, `deploy/encore/meta.json`, `deploy/compose.yaml`, and `deploy/komodo/resources.toml`; there is no source-scan fallback or separate static example infra file to keep in sync.
 
 GitLab and GitHub CI both run validate, image build, migration, and Komodo deploy stages. They generate the frontend client/OpenAPI before frontend builds and trigger migrations after images are built but before the Komodo stack deploy webhook.
 
@@ -83,7 +83,9 @@ See [docs/deployment.md](docs/deployment.md) for CI variables, Komodo setup, das
 
 ## NECK Dash
 
-`NECK_DASH_DOMAIN` is the default production observability UI. The backend exports Encore metrics to VictoriaMetrics with the official Prometheus remote-write infra primitive. NECK Dash queries built-in and custom metrics from VictoriaMetrics and reads flow, service catalog, and OpenAPI data from `/api` on the dashboard host. The sidecar also includes a trace ingestion endpoint for deployments that explicitly configure Encore trace export.
+`NECK_DASH_DOMAIN` is the default production observability UI. The backend exports Encore metrics to VictoriaMetrics with the official Prometheus remote-write infra primitive. NECK Dash queries Insights, built-in metrics, and custom metrics from VictoriaMetrics, structured logs from VictoriaLogs, and reads flow, service catalog, and OpenAPI data from `/api` on the dashboard host. The sidecar also includes a trace ingestion endpoint for deployments that explicitly configure Encore trace export.
+
+High-volume installs are expected: trace lists are time-bounded and service-fanout limited, direct trace-id searches use a direct lookup, log searches are time/row limited, and live log tailing requires a filter.
 
 ## More Docs
 

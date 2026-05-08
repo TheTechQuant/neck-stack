@@ -24,7 +24,7 @@ NECK intentionally keeps deploy configuration compact:
 - `deploy/encore/infra.prod.json`: generated Encore self-hosted infra config.
 - `deploy/encore/meta.json`: generated Encore metadata for NECK Dash catalog views.
 
-There is no `infra.prod.example.json`. The generated `infra.prod.json` is explicit and reproducible from Encore metadata, so a hand-maintained example would drift.
+There is no `infra.prod.example.json`. The generated `infra.prod.json` is explicit and reproducible from `encore debug meta -f json`, so a hand-maintained example would drift. If Encore metadata cannot be produced, deployment config generation fails instead of guessing from source.
 
 ## Komodo
 
@@ -53,7 +53,7 @@ Services are provisioned only when used:
 - No `CronJob`: no cron runner actions.
 - `Bucket` resources are detected but not provisioned.
 
-NECK Dash always runs with the published `neckdash` and `neckdash-ui` images plus VictoriaTraces and VictoriaMetrics. That keeps trace storage separate from app Postgres and avoids copying dashboard source into application repos.
+NECK Dash always runs with the published `neckdash` and `neckdash-ui` images plus VictoriaTraces, VictoriaMetrics, and VictoriaLogs. That keeps observability storage separate from app Postgres and avoids copying dashboard source into application repos.
 
 Object storage should be external. Use S3, Cloudflare R2, GCS, or another managed provider and wire the Encore infra config accordingly.
 
@@ -70,6 +70,7 @@ Relevant variables:
 - `NECK_DASH_PASSWORD_HASH`, for the protected NECK Dash UI.
 - `ENCORE_AUTH_KEY`, shared by the Encore runtime trace signer and NECK Dash receiver.
 - `VICTORIA_METRICS_REMOTE_WRITE_URL`, used by Encore's Prometheus remote-write metrics exporter. Defaults to the private VictoriaMetrics service.
+- `VICTORIA_LOGS_INSERT_URL` and `VICTORIA_LOGS_QUERY_URL`, used by NECK Dash for structured log ingestion and search. Defaults point at the private VictoriaLogs service.
 
 To generate a new Caddy-compatible dashboard hash:
 
@@ -96,9 +97,11 @@ Caddy exposes `NECK_DASH_DOMAIN` and protects it with HTTP Basic Auth:
 - `NECK_DASH_USER`, default `admin`.
 - `NECK_DASH_PASSWORD_HASH`, generated at scaffold time.
 
-The generated Encore infra config enables the official Prometheus remote-write metrics provider with `VICTORIA_METRICS_REMOTE_WRITE_URL`. That path carries Encore runtime metrics such as request counters and memory gauges, plus any custom metrics declared with `encore.dev/metrics`. NECK Dash queries VictoriaMetrics for request metrics, runtime metrics, and custom metric samples.
+The generated Encore infra config enables the official Prometheus remote-write metrics provider with `VICTORIA_METRICS_REMOTE_WRITE_URL`. That path carries Encore runtime metrics such as request counters and memory gauges, plus any custom metrics declared with `encore.dev/metrics`. NECK Dash queries VictoriaMetrics for Insights, request metrics, runtime metrics, and custom metric samples.
 
-NECK Dash also ships a `/trace` ingestion adapter that validates Encore trace signatures, converts Encore trace streams to OpenTelemetry JSON, and forwards them to VictoriaTraces. The generated template keeps this out of the app runtime config and only uses Encore-supported self-hosted infra primitives by default.
+NECK Dash also ships a `/trace` ingestion adapter that validates Encore trace signatures, converts Encore trace streams to OpenTelemetry JSON, and forwards them to VictoriaTraces. Structured `encore.dev/log` events in those trace streams are written once to VictoriaLogs as searchable fields with `trace_id` and `span_id` preserved for correlation. The Logs tab queries VictoriaLogs, and `/api/logs/tail` proxies VictoriaLogs live tailing as NDJSON for terminal use.
+
+For high-volume apps, NECK Dash keeps exploratory reads bounded: trace listing defaults to the last hour and caps all-service fanout with `NECKDASH_TRACE_SERVICE_FANOUT_LIMIT`; log listing defaults to the last hour with a hard result limit; live log tailing requires at least one query, service, level, or trace-id filter.
 
 Default images:
 
@@ -106,8 +109,9 @@ Default images:
 - `ghcr.io/thetechquant/neck-stack/neckdash-ui:latest`
 - `victoriametrics/victoria-traces:latest`
 - `victoriametrics/victoria-metrics:latest`
+- `victoriametrics/victoria-logs:latest`
 
-Retention is controlled by `VICTORIA_TRACES_RETENTION` and `VICTORIA_METRICS_RETENTION`.
+Retention is controlled by `VICTORIA_TRACES_RETENTION`, `VICTORIA_METRICS_RETENTION`, and `VICTORIA_LOGS_RETENTION`.
 
 ## Target Architecture
 

@@ -25,8 +25,18 @@ func Health(ctx context.Context) (*HealthResponse, error) {
 //encore:api public method=GET path=/traces
 func ListTraces(ctx context.Context, params *TraceListParams) (*TraceListResponse, error) {
 	limit := params.Limit
-	if limit <= 0 || limit > 200 {
-		limit = 100
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	hours := params.Hours
+	if hours <= 0 || hours > 168 {
+		hours = 1
+	}
+	if looksLikeTraceID(params.Search) {
+		trace, err := getJaegerTrace(ctx, params.Search)
+		if err == nil && trace.TraceID != "" {
+			return &TraceListResponse{Traces: []TraceSummary{summarizeJaegerTrace(trace)}}, nil
+		}
 	}
 	services := []string{params.Service}
 	if params.Service == "" {
@@ -34,18 +44,21 @@ func ListTraces(ctx context.Context, params *TraceListParams) (*TraceListRespons
 		if err == nil {
 			services = discovered
 		}
-		if len(services) > 8 {
-			services = services[:8]
+		fanoutLimit := traceServiceFanoutLimit()
+		if len(services) > fanoutLimit {
+			services = services[:fanoutLimit]
 		}
 	}
 
+	end := time.Now()
+	start := end.Add(-time.Duration(hours) * time.Hour)
 	seen := make(map[string]bool)
 	var traces []TraceSummary
 	for _, service := range services {
 		if service == "" {
 			continue
 		}
-		got, err := queryJaegerTraces(ctx, service, limit)
+		got, err := queryJaegerTraces(ctx, service, limit, start, end)
 		if err != nil {
 			return nil, err
 		}
@@ -66,6 +79,17 @@ func ListTraces(ctx context.Context, params *TraceListParams) (*TraceListRespons
 	return &TraceListResponse{Traces: traces}, nil
 }
 
+// ListTraceServices returns service names indexed by VictoriaTraces.
+//
+//encore:api public method=GET path=/traces/services
+func ListTraceServices(ctx context.Context) (*TraceServicesResponse, error) {
+	services, err := listServices(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &TraceServicesResponse{Services: services}, nil
+}
+
 // GetTrace returns a raw Jaeger trace payload from VictoriaTraces.
 //
 //encore:api public method=GET path=/traces/:traceID
@@ -77,7 +101,32 @@ func GetTrace(ctx context.Context, traceID string) (*TraceDetailResponse, error)
 	return &TraceDetailResponse{TraceID: traceID, RawJSON: string(raw)}, nil
 }
 
-// MetricsSummary returns Encore runtime RED metrics and trace-derived latency data.
+// Insights returns an Encore Cloud-style operational overview.
+//
+//encore:api public method=GET path=/insights
+func Insights(ctx context.Context, params *InsightsParams) (*InsightsResponse, error) {
+	window := resolveInsightsWindow(params.Range)
+	requests, _ := queryScalar(ctx, fmt.Sprintf(`sum(increase(e_requests_total[%s]))`, window.PromDuration))
+	errors, _ := queryScalar(ctx, fmt.Sprintf(`sum(increase(e_requests_total{code!="ok"}[%s]))`, window.PromDuration))
+	services, _ := insightServices(ctx, window)
+	series, _ := insightRateSeries(ctx, window)
+
+	errorRate := 0.0
+	if requests > 0 {
+		errorRate = errors / requests
+	}
+	return &InsightsResponse{
+		Range:         window.ID,
+		WindowSeconds: int64(window.Duration.Seconds()),
+		Requests:      requests,
+		Errors:        errors,
+		ErrorRate:     errorRate,
+		RequestRate:   series,
+		Services:      services,
+	}, nil
+}
+
+// MetricsSummary returns Encore runtime RED metrics from Prometheus remote write.
 //
 //encore:api public method=GET path=/metrics/summary
 func MetricsSummary(ctx context.Context, params *MetricsParams) (*MetricsResponse, error) {
@@ -85,15 +134,8 @@ func MetricsSummary(ctx context.Context, params *MetricsParams) (*MetricsRespons
 	if hours <= 0 || hours > 720 {
 		hours = 24
 	}
-	source := "runtime"
 	counts, _ := queryMetric(ctx, fmt.Sprintf(`sum by (service,endpoint) (increase(e_requests_total[%dh]))`, hours))
 	errorsByEndpoint, _ := queryMetric(ctx, fmt.Sprintf(`sum by (service,endpoint) (increase(e_requests_total{code!="ok"}[%dh]))`, hours))
-	if len(counts) == 0 {
-		source = "trace"
-		counts, _ = queryMetric(ctx, fmt.Sprintf(`sum by (service,endpoint) (increase(neckdash_trace_requests_total[%dh]))`, hours))
-		errorsByEndpoint, _ = queryMetric(ctx, fmt.Sprintf(`sum by (service,endpoint) (increase(neckdash_trace_errors_total[%dh]))`, hours))
-	}
-	avg, _ := queryMetric(ctx, `avg by (service,endpoint) (neckdash_trace_request_duration_seconds)`)
 	runtime, _ := runtimeMetrics(ctx)
 
 	merged := make(map[string]ServiceMetric)
@@ -103,20 +145,11 @@ func MetricsSummary(ctx context.Context, params *MetricsParams) (*MetricsRespons
 		metric.Service = service
 		metric.Endpoint = endpoint
 		metric.TraceCount = value
-		metric.Source = source
 		merged[key] = metric
 	}
 	for key, value := range errorsByEndpoint {
 		metric := merged[key]
 		metric.ErrorCount = value
-		merged[key] = metric
-	}
-	for key, value := range avg {
-		metric := merged[key]
-		metric.AvgDurationMS = value * 1000
-		if metric.Source == "" {
-			metric.Source = "trace"
-		}
 		merged[key] = metric
 	}
 	var services []ServiceMetric
@@ -184,50 +217,17 @@ func CustomMetrics(ctx context.Context, params *MetricsParams) (*CustomMetricsRe
 	return &CustomMetricsResponse{WindowHours: hours, Definitions: definitions, Samples: samples}, nil
 }
 
-// Flow returns VictoriaTraces service dependency data.
-//
-//encore:api public method=GET path=/flow
-func Flow(ctx context.Context) (*FlowResponse, error) {
-	end := time.Now().UnixMilli()
-	var raw struct {
-		Data []struct {
-			Parent    string `json:"parent"`
-			Child     string `json:"child"`
-			CallCount int64  `json:"callCount"`
-		} `json:"data"`
-	}
-	endpoint := fmt.Sprintf("%s/api/dependencies?endTs=%d&lookback=%d", victoriaTracesQueryURL(), end, int64(time.Hour/time.Millisecond))
-	_ = getJSON(ctx, endpoint, &raw)
-
-	nodes, edges := catalogFlow()
-	seenNodes := make(map[string]bool)
-	for _, node := range nodes {
-		seenNodes[node.ID] = true
-	}
-	for _, edge := range raw.Data {
-		if edge.Parent == "" || edge.Child == "" {
-			continue
-		}
-		if !seenNodes[edge.Parent] {
-			nodes = append(nodes, FlowNode{ID: edge.Parent, Kind: "service", Name: edge.Parent})
-			seenNodes[edge.Parent] = true
-		}
-		if !seenNodes[edge.Child] {
-			nodes = append(nodes, FlowNode{ID: edge.Child, Kind: "service", Name: edge.Child})
-			seenNodes[edge.Child] = true
-		}
-		edges = append(edges, FlowEdge{Source: edge.Parent, Target: edge.Child, Kind: "observed", Count: edge.CallCount})
-	}
-	return &FlowResponse{Nodes: nodes, Edges: edges}, nil
-}
-
 // Catalog returns generated Encore metadata and OpenAPI JSON mounted by the deployed app.
 //
 //encore:api public method=GET path=/catalog
 func Catalog(ctx context.Context) (*CatalogResponse, error) {
 	meta, _ := os.ReadFile(env("NECKDASH_META_PATH", "/catalog/meta.json"))
 	openapi, _ := os.ReadFile(env("NECKDASH_OPENAPI_PATH", "/catalog/openapi.json"))
-	return &CatalogResponse{MetaJSON: string(meta), OpenAPIJSON: string(openapi)}, nil
+	return &CatalogResponse{
+		MetaJSON:    string(meta),
+		OpenAPIJSON: string(openapi),
+		Services:    buildCatalog(meta, openapi),
+	}, nil
 }
 
 // GetSampling documents how sampling is applied for self-hosted deployments.
@@ -244,7 +244,7 @@ func GetSampling(ctx context.Context) (*SamplingResponse, error) {
 			ScopeValue: "",
 			Rate:       rate,
 		}},
-		RuntimeNote: "Sampling is enforced by deploy/encore/runtime.prod.pb. Change NECK_TRACE_SAMPLE_RATE, run pnpm infra:encore, rebuild the backend image, and redeploy.",
+		RuntimeNote: "Sampling is enforced by the Encore runtime trace exporter. Change NECK_TRACE_SAMPLE_RATE, regenerate deployment config, rebuild the backend image, and redeploy.",
 	}, nil
 }
 
@@ -259,8 +259,24 @@ func listServices(ctx context.Context) ([]string, error) {
 	return raw.Data, nil
 }
 
-func queryJaegerTraces(ctx context.Context, service string, limit int) ([]TraceSummary, error) {
-	endpoint := victoriaTracesQueryURL() + "/api/traces?service=" + url.QueryEscape(service) + "&limit=" + strconv.Itoa(limit)
+func getJaegerTrace(ctx context.Context, traceID string) (jaegerTrace, error) {
+	var raw struct {
+		Data []jaegerTrace `json:"data"`
+	}
+	err := getJSON(ctx, victoriaTracesQueryURL()+"/api/traces/"+url.PathEscape(traceID), &raw)
+	if err != nil || len(raw.Data) == 0 {
+		return jaegerTrace{}, err
+	}
+	return raw.Data[0], nil
+}
+
+func queryJaegerTraces(ctx context.Context, service string, limit int, start time.Time, end time.Time) ([]TraceSummary, error) {
+	values := url.Values{}
+	values.Set("service", service)
+	values.Set("limit", strconv.Itoa(limit))
+	values.Set("start", strconv.FormatInt(start.UnixMicro(), 10))
+	values.Set("end", strconv.FormatInt(end.UnixMicro(), 10))
+	endpoint := victoriaTracesQueryURL() + "/api/traces?" + values.Encode()
 	var raw struct {
 		Data []jaegerTrace `json:"data"`
 	}
@@ -272,6 +288,30 @@ func queryJaegerTraces(ctx context.Context, service string, limit int) ([]TraceS
 		out = append(out, summarizeJaegerTrace(trace))
 	}
 	return out, nil
+}
+
+func traceServiceFanoutLimit() int {
+	limit, err := strconv.Atoi(env("NECKDASH_TRACE_SERVICE_FANOUT_LIMIT", "32"))
+	if err != nil || limit <= 0 {
+		return 32
+	}
+	if limit > 256 {
+		return 256
+	}
+	return limit
+}
+
+func looksLikeTraceID(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) != 16 && len(value) != 32 {
+		return false
+	}
+	for _, ch := range value {
+		if !(ch >= '0' && ch <= '9' || ch >= 'a' && ch <= 'f' || ch >= 'A' && ch <= 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 func getJSON(ctx context.Context, endpoint string, out interface{}) error {
@@ -353,6 +393,24 @@ type metricVector struct {
 	Timestamp time.Time
 }
 
+type metricRange struct {
+	Labels map[string]string
+	Points []metricRangePoint
+}
+
+type metricRangePoint struct {
+	Timestamp time.Time
+	Value     float64
+}
+
+type insightsWindow struct {
+	ID           string
+	PromDuration string
+	Duration     time.Duration
+	StepSeconds  int64
+	RateWindow   string
+}
+
 type metricDefinitionRaw struct {
 	Name        string `json:"name"`
 	Kind        any    `json:"kind"`
@@ -376,6 +434,112 @@ func numericTag(value interface{}) (float64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func resolveInsightsWindow(value string) insightsWindow {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "10m":
+		return insightsWindow{ID: "10m", PromDuration: "10m", Duration: 10 * time.Minute, StepSeconds: 15, RateWindow: "1m"}
+	case "1h":
+		return insightsWindow{ID: "1h", PromDuration: "1h", Duration: time.Hour, StepSeconds: 60, RateWindow: "2m"}
+	case "8h":
+		return insightsWindow{ID: "8h", PromDuration: "8h", Duration: 8 * time.Hour, StepSeconds: 5 * 60, RateWindow: "10m"}
+	case "3d":
+		return insightsWindow{ID: "3d", PromDuration: "3d", Duration: 72 * time.Hour, StepSeconds: 60 * 60, RateWindow: "2h"}
+	case "7d":
+		return insightsWindow{ID: "7d", PromDuration: "7d", Duration: 7 * 24 * time.Hour, StepSeconds: 2 * 60 * 60, RateWindow: "4h"}
+	default:
+		return insightsWindow{ID: "24h", PromDuration: "24h", Duration: 24 * time.Hour, StepSeconds: 15 * 60, RateWindow: "30m"}
+	}
+}
+
+func insightServices(ctx context.Context, window insightsWindow) ([]InsightsService, error) {
+	requests, err := queryByLabel(ctx, fmt.Sprintf(`sum by (service) (increase(e_requests_total[%s]))`, window.PromDuration), "service")
+	if err != nil {
+		return nil, err
+	}
+	errors, _ := queryByLabel(ctx, fmt.Sprintf(`sum by (service) (increase(e_requests_total{code!="ok"}[%s]))`, window.PromDuration), "service")
+	rates, _ := queryByLabel(ctx, fmt.Sprintf(`sum by (service) (rate(e_requests_total[%s]))`, window.RateWindow), "service")
+
+	seen := make(map[string]bool)
+	var services []InsightsService
+	for service, count := range requests {
+		seen[service] = true
+		metric := InsightsService{
+			Service:  valueOr(service, "unknown"),
+			Requests: count,
+			Errors:   errors[service],
+			Rate:     rates[service],
+		}
+		if metric.Requests > 0 {
+			metric.ErrorRate = metric.Errors / metric.Requests
+		}
+		services = append(services, metric)
+	}
+	for service, count := range errors {
+		if seen[service] {
+			continue
+		}
+		metric := InsightsService{
+			Service: valueOr(service, "unknown"),
+			Errors:  count,
+			Rate:    rates[service],
+		}
+		services = append(services, metric)
+	}
+	sort.Slice(services, func(i, j int) bool { return services[i].Requests > services[j].Requests })
+	return services, nil
+}
+
+func insightRateSeries(ctx context.Context, window insightsWindow) ([]InsightsSeries, error) {
+	end := time.Now()
+	start := end.Add(-window.Duration)
+	results, err := queryRange(ctx, fmt.Sprintf(`sum by (service) (rate(e_requests_total[%s]))`, window.RateWindow), start, end, window.StepSeconds)
+	if err != nil {
+		return nil, err
+	}
+	series := make([]InsightsSeries, 0, len(results))
+	for _, result := range results {
+		service := valueOr(result.Labels["service"], "unknown")
+		points := make([]InsightsPoint, 0, len(result.Points))
+		for _, point := range result.Points {
+			points = append(points, InsightsPoint{
+				Timestamp: point.Timestamp.UTC().Format(time.RFC3339Nano),
+				Value:     point.Value,
+			})
+		}
+		series = append(series, InsightsSeries{Service: service, Points: points})
+	}
+	sort.Slice(series, func(i, j int) bool { return series[i].Service < series[j].Service })
+	return series, nil
+}
+
+func queryScalar(ctx context.Context, query string) (float64, error) {
+	results, err := queryVector(ctx, query)
+	if err != nil {
+		return 0, err
+	}
+	total := 0.0
+	for _, result := range results {
+		total += result.Value
+	}
+	return total, nil
+}
+
+func queryByLabel(ctx context.Context, query string, label string) (map[string]float64, error) {
+	results, err := queryVector(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]float64)
+	for _, result := range results {
+		key := result.Labels[label]
+		if key == "" && label == "service" {
+			key = result.Labels["service_id"]
+		}
+		out[key] += result.Value
+	}
+	return out, nil
 }
 
 func queryMetric(ctx context.Context, query string) (map[string]float64, error) {
@@ -415,6 +579,51 @@ func queryVector(ctx context.Context, query string) ([]metricVector, error) {
 			value, _ = strconv.ParseFloat(fmt.Sprint(result.Value[1]), 64)
 		}
 		out = append(out, metricVector{Labels: result.Metric, Value: value, Timestamp: ts})
+	}
+	return out, nil
+}
+
+func queryRange(ctx context.Context, query string, start time.Time, end time.Time, stepSeconds int64) ([]metricRange, error) {
+	values := url.Values{}
+	values.Set("query", query)
+	values.Set("start", strconv.FormatInt(start.Unix(), 10))
+	values.Set("end", strconv.FormatInt(end.Unix(), 10))
+	values.Set("step", strconv.FormatInt(stepSeconds, 10))
+
+	var raw struct {
+		Data struct {
+			Result []struct {
+				Metric map[string]string `json:"metric"`
+				Values [][]interface{}   `json:"values"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if err := getJSON(ctx, victoriaMetricsRangeQueryURL()+"?"+values.Encode(), &raw); err != nil {
+		return nil, err
+	}
+
+	out := make([]metricRange, 0, len(raw.Data.Result))
+	for _, result := range raw.Data.Result {
+		item := metricRange{Labels: result.Metric, Points: make([]metricRangePoint, 0, len(result.Values))}
+		for _, value := range result.Values {
+			if len(value) < 2 {
+				continue
+			}
+			unixSeconds, ok := numericTag(value[0])
+			if !ok {
+				continue
+			}
+			sec, frac := int64(unixSeconds), unixSeconds-float64(int64(unixSeconds))
+			parsed, err := strconv.ParseFloat(fmt.Sprint(value[1]), 64)
+			if err != nil {
+				continue
+			}
+			item.Points = append(item.Points, metricRangePoint{
+				Timestamp: time.Unix(sec, int64(frac*1e9)),
+				Value:     parsed,
+			})
+		}
+		out = append(out, item)
 	}
 	return out, nil
 }
@@ -553,89 +762,4 @@ func publicMetricLabels(labels map[string]string) map[string]string {
 		}
 	}
 	return out
-}
-
-func catalogFlow() ([]FlowNode, []FlowEdge) {
-	data, err := os.ReadFile(env("NECKDASH_META_PATH", "/catalog/meta.json"))
-	if err != nil {
-		return nil, nil
-	}
-	var meta struct {
-		Svcs []struct {
-			Name string `json:"name"`
-		} `json:"svcs"`
-		SQLDatabases []struct {
-			Name string `json:"name"`
-		} `json:"sql_databases"`
-		CacheClusters []struct {
-			Name      string `json:"name"`
-			Keyspaces []struct {
-				Service string `json:"service"`
-			} `json:"keyspaces"`
-		} `json:"cache_clusters"`
-		PubSubTopics []struct {
-			Name       string `json:"name"`
-			Publishers []struct {
-				ServiceName string `json:"service_name"`
-			} `json:"publishers"`
-			Subscriptions []struct {
-				ServiceName string `json:"service_name"`
-			} `json:"subscriptions"`
-		} `json:"pubsub_topics"`
-		Buckets []struct {
-			Name string `json:"name"`
-		} `json:"buckets"`
-	}
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return nil, nil
-	}
-	seen := make(map[string]bool)
-	var nodes []FlowNode
-	addNode := func(id, kind, name string) {
-		if id == "" || seen[id] {
-			return
-		}
-		seen[id] = true
-		nodes = append(nodes, FlowNode{ID: id, Kind: kind, Name: name})
-	}
-	var edges []FlowEdge
-	for _, svc := range meta.Svcs {
-		addNode(svc.Name, "service", svc.Name)
-	}
-	for _, database := range meta.SQLDatabases {
-		addNode("db:"+database.Name, "database", database.Name)
-	}
-	for _, bucket := range meta.Buckets {
-		addNode("bucket:"+bucket.Name, "bucket", bucket.Name)
-	}
-	for _, cache := range meta.CacheClusters {
-		cacheID := "cache:" + cache.Name
-		addNode(cacheID, "cache", cache.Name)
-		for _, keyspace := range cache.Keyspaces {
-			if keyspace.Service != "" {
-				edges = append(edges, FlowEdge{Source: keyspace.Service, Target: cacheID, Kind: "cache", Count: 0})
-			}
-		}
-	}
-	for _, topic := range meta.PubSubTopics {
-		topicID := "topic:" + topic.Name
-		addNode(topicID, "topic", topic.Name)
-		for _, publisher := range topic.Publishers {
-			if publisher.ServiceName != "" {
-				edges = append(edges, FlowEdge{Source: publisher.ServiceName, Target: topicID, Kind: "publish", Count: 0})
-			}
-		}
-		for _, subscription := range topic.Subscriptions {
-			if subscription.ServiceName != "" {
-				edges = append(edges, FlowEdge{Source: topicID, Target: subscription.ServiceName, Kind: "subscribe", Count: 0})
-			}
-		}
-	}
-	sort.Slice(nodes, func(i, j int) bool {
-		if nodes[i].Kind == nodes[j].Kind {
-			return nodes[i].Name < nodes[j].Name
-		}
-		return nodes[i].Kind < nodes[j].Kind
-	})
-	return nodes, edges
 }

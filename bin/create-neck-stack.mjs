@@ -2,10 +2,10 @@
 import { $, fs, path } from "zx";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { input } from "@inquirer/prompts";
+import { parse } from "@bomb.sh/args";
+import { cancel, intro, isCancel, log, outro, text } from "@clack/prompts";
 import bcrypt from "bcryptjs";
 import chalk from "chalk";
-import { Command } from "commander";
 
 $.verbose = false;
 
@@ -13,41 +13,140 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 const templateDir = path.join(rootDir, "templates", "default");
 
-function createProgram() {
-  return new Command()
-    .name("create-neck-stack")
-    .description("Create a NECK app: Nuxt.js, Encore.ts, Caddy, and Komodo.")
-    .argument("[app-name]", "target directory or app name")
-    .option("--name <name>", "package/app display name when target path differs")
-    .option("--domain <domain>", "public frontend domain")
-    .option("--dashboard-domain <domain>", "basic-auth protected Encore dashboard redirect domain")
-    .option("--dashboard-user <user>", "basic-auth user for Encore dashboard redirect")
-    .option("--dashboard-url <url>", "target URL for the protected Encore dashboard redirect")
-    .option("--dashboard-password <value>", "basic-auth password for Encore dashboard redirect")
-    .option("--neckdash-domain <domain>", "basic-auth protected self-hosted NECK Dash domain")
-    .option("--neckdash-user <user>", "basic-auth user for NECK Dash")
-    .option("--neckdash-password <value>", "basic-auth password for NECK Dash")
-    .option("--caddy-email <email>", "ACME email for Caddy certificates")
-    .option("--gitlab-project <path>", "GitLab project path, e.g. group/app")
-    .option("--registry <registry>", "container image registry/repository")
-    .option("--prod-platform <platform>", "production image target platform, e.g. linux/amd64 or linux/arm64")
-    .option("--komodo-server <name>", "Komodo server resource name")
-    .option("--komodo-deploy-webhook-url <url>", "optional Komodo stack deploy webhook written to generated .env")
-    .option("--komodo-migrate-webhook-url <url>", "optional Komodo migration webhook written to generated .env")
-    .option("--git-provider <domain>", "Git provider domain for Komodo", "gitlab.com")
-    .option("--git-account <name>", "Komodo git account for private repos", "gitlab")
-    .option("--run-directory <path>", "Komodo stack checkout/run directory")
-    .option("--encore-app-id <slug>", "Encore app id to register/link")
-    .option("--encore-auth-key <key>", "Encore auth key for non-browser app registration")
-    .option("--encore-platform", "register backend with Encore Cloud")
-    .option("--no-encore-platform", "skip Encore Cloud registration")
-    .option("--yes", "use defaults for missing values")
-    .option("--force", "allow writing into a non-empty target directory")
-    .option("--install", "run pnpm install after generation")
-    .option("--no-install", "skip pnpm install after generation")
-    .option("--git", "initialize git repo after generation")
-    .option("--no-git", "skip git initialization")
-    .showHelpAfterError();
+const stringOptions = [
+  "name",
+  "domain",
+  "dashboard-domain",
+  "dashboard-user",
+  "dashboard-url",
+  "dashboard-password",
+  "neckdash-domain",
+  "neckdash-user",
+  "neckdash-password",
+  "caddy-email",
+  "gitlab-project",
+  "registry",
+  "prod-platform",
+  "komodo-server",
+  "komodo-deploy-webhook-url",
+  "komodo-migrate-webhook-url",
+  "git-provider",
+  "git-account",
+  "run-directory",
+  "encore-app-id",
+  "encore-auth-key",
+];
+
+const booleanOptions = [
+  "encore-platform",
+  "yes",
+  "force",
+  "install",
+  "git",
+  "help",
+  "version",
+];
+
+function helpText() {
+  return `
+Create a NECK app: Nuxt.js, Encore.ts, Caddy, and Komodo.
+
+Usage:
+  create-neck-stack [app-name] [options]
+
+Options:
+  --name <name>                         Package/app display name when target path differs
+  --domain <domain>                     Public frontend domain
+  --dashboard-domain <domain>           Basic-auth protected Encore dashboard redirect domain
+  --dashboard-user <user>               Basic-auth user for Encore dashboard redirect
+  --dashboard-url <url>                 Target URL for the protected Encore dashboard redirect
+  --dashboard-password <value>          Basic-auth password for Encore dashboard redirect
+  --neckdash-domain <domain>            Basic-auth protected self-hosted NECK Dash domain
+  --neckdash-user <user>                Basic-auth user for NECK Dash
+  --neckdash-password <value>           Basic-auth password for NECK Dash
+  --caddy-email <email>                 ACME email for Caddy certificates
+  --gitlab-project <path>               GitLab project path, e.g. group/app
+  --registry <registry>                 Container image registry/repository
+  --prod-platform <platform>            linux/amd64, linux/arm64, amd64, or arm64
+  --komodo-server <name>                Komodo server resource name
+  --komodo-deploy-webhook-url <url>     Optional Komodo stack deploy webhook
+  --komodo-migrate-webhook-url <url>    Optional Komodo migration webhook
+  --git-provider <domain>               Git provider domain for Komodo
+  --git-account <name>                  Komodo git account for private repos
+  --run-directory <path>                Komodo stack checkout/run directory
+  --encore-app-id <slug>                Encore app id to register/link
+  --encore-auth-key <key>               Encore auth key for non-browser app registration
+  --encore-platform / --no-encore-platform
+  --install / --no-install
+  --git / --no-git
+  --yes                                 Use defaults for missing values
+  --force                               Allow writing into a non-empty target directory
+  -h, --help                            Show help
+  -v, --version                         Show package version
+`.trim();
+}
+
+async function packageVersion() {
+  const pkg = JSON.parse(await fs.readFile(path.join(rootDir, "package.json"), "utf8"));
+  return pkg.version;
+}
+
+function parseCliArgs(argv) {
+  const parsed = parse(argv, {
+    alias: { h: "help", v: "version" },
+    boolean: booleanOptions,
+    default: {
+      "encore-platform": true,
+      git: true,
+      install: true,
+    },
+    string: stringOptions,
+  });
+
+  const allowedKeys = new Set(["_", ...booleanOptions, ...stringOptions]);
+  const unknown = Object.keys(parsed).filter((key) => !allowedKeys.has(key));
+  if (unknown.length > 0) {
+    throw new Error(`Unknown option${unknown.length === 1 ? "" : "s"}: ${unknown.map((key) => `--${key}`).join(", ")}`);
+  }
+
+  const positional = Array.isArray(parsed._) ? parsed._.map(String) : [];
+  if (positional.length > 1) {
+    throw new Error(`Expected at most one app name, got: ${positional.join(" ")}`);
+  }
+
+  return {
+    positionalName: positional[0],
+    options: {
+      caddyEmail: parsed["caddy-email"],
+      dashboardDomain: parsed["dashboard-domain"],
+      dashboardPassword: parsed["dashboard-password"],
+      dashboardUrl: parsed["dashboard-url"],
+      dashboardUser: parsed["dashboard-user"],
+      domain: parsed.domain,
+      encoreAppId: parsed["encore-app-id"],
+      encoreAuthKey: parsed["encore-auth-key"],
+      encorePlatform: parsed["encore-platform"],
+      force: parsed.force === true,
+      git: parsed.git,
+      gitAccount: parsed["git-account"],
+      gitProvider: parsed["git-provider"],
+      gitlabProject: parsed["gitlab-project"],
+      help: parsed.help === true,
+      install: parsed.install,
+      komodoDeployWebhookUrl: parsed["komodo-deploy-webhook-url"],
+      komodoMigrateWebhookUrl: parsed["komodo-migrate-webhook-url"],
+      komodoServer: parsed["komodo-server"],
+      name: parsed.name,
+      neckdashDomain: parsed["neckdash-domain"],
+      neckdashPassword: parsed["neckdash-password"],
+      neckdashUser: parsed["neckdash-user"],
+      prodPlatform: parsed["prod-platform"],
+      registry: parsed.registry,
+      runDirectory: parsed["run-directory"],
+      version: parsed.version === true,
+      yes: parsed.yes === true,
+    },
+  };
 }
 
 function slugify(input) {
@@ -88,41 +187,52 @@ function secretToken() {
 }
 
 function section(label) {
-  console.log(`\n${chalk.bold.cyan(label)}`);
+  log.info(label);
 }
 
 function step(label) {
-  console.log(chalk.dim(`  • ${label}`));
+  log.step(label);
 }
 
 function success(label) {
-  console.log(chalk.green(`✓ ${label}`));
+  log.success(label);
+}
+
+function readPromptResult(value) {
+  if (isCancel(value)) {
+    cancel("Cancelled.");
+    process.exit(0);
+  }
+
+  return String(value).trim();
 }
 
 async function promptValue(label, fallback, yes) {
   if (yes) return fallback;
-  const answer = await input({
-    message: chalk.cyan(label),
-    default: fallback,
+  const answer = await text({
+    defaultValue: fallback,
+    message: label,
+    placeholder: fallback,
   });
-  return answer.trim() || fallback;
+  return readPromptResult(answer) || fallback;
 }
 
 async function promptOptional(label, fallback, yes) {
   if (yes) return fallback;
-  const answer = await input({
-    message: chalk.cyan(label),
-    default: fallback || undefined,
+  const answer = await text({
+    defaultValue: fallback || undefined,
+    message: label,
+    placeholder: fallback || undefined,
   });
-  return answer.trim() || fallback;
+  return readPromptResult(answer) || fallback;
 }
 
 async function promptRequired(label) {
-  const answer = await input({
-    message: chalk.cyan(label),
-    validate: (value) => value.trim().length > 0 || `${label} is required`,
+  const answer = await text({
+    message: label,
+    validate: (value) => value.trim().length > 0 ? undefined : `${label} is required`,
   });
-  return answer.trim();
+  return readPromptResult(answer);
 }
 
 async function pathExists(target) {
@@ -223,10 +333,19 @@ async function initEncorePlatform(backendDir, appId, authKey) {
 }
 
 async function main() {
-  const program = createProgram();
-  program.parse(process.argv);
-  const options = program.opts();
-  const [positionalName] = program.args;
+  const { positionalName, options } = parseCliArgs(process.argv.slice(2));
+
+  if (options.help) {
+    console.log(helpText());
+    return;
+  }
+
+  if (options.version) {
+    console.log(await packageVersion());
+    return;
+  }
+
+  intro("create-neck-stack");
 
   const yes = options.yes === true;
   if (!yes) {
@@ -352,10 +471,10 @@ async function main() {
   if (!shouldInstall) console.log(`  ${chalk.cyan("pnpm dlx zx scripts/install.mjs")}`);
   console.log(`  ${chalk.cyan("pnpm check")}`);
   console.log(`  ${chalk.cyan("pnpm dev")}`);
-  console.log(chalk.dim("\nDashboard password and deploy defaults were written to .env."));
+  outro("Dashboard password and deploy defaults were written to .env.");
 }
 
 main().catch((err) => {
-  console.error(chalk.red(err instanceof Error ? err.message : err));
+  cancel(err instanceof Error ? err.message : String(err));
   process.exit(1);
 });

@@ -134,7 +134,7 @@ func Trace(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "parse Encore trace stream: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	otlp, spans, err := convertToOTLP(meta, events)
+	otlp, _, logs, err := convertToOTLP(meta, events)
 	if err != nil {
 		http.Error(w, "convert trace stream: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -143,7 +143,10 @@ func Trace(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "post to VictoriaTraces: "+err.Error(), http.StatusBadGateway)
 		return
 	}
-	_ = postDerivedMetrics(req, meta, spans)
+	if err := postVictoriaLogs(req, logs); err != nil {
+		http.Error(w, "post to VictoriaLogs: "+err.Error(), http.StatusBadGateway)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -221,7 +224,7 @@ func validateTraceAuth(req *http.Request) error {
 	return nil
 }
 
-func convertToOTLP(meta traceRequestMeta, events []*tracepb2.TraceEvent) (otlpRequest, []spanBuilder, error) {
+func convertToOTLP(meta traceRequestMeta, events []*tracepb2.TraceEvent) (otlpRequest, []spanBuilder, []victoriaLogEntry, error) {
 	builders := make(map[string]*spanBuilder)
 	for _, ev := range events {
 		spanID := hexSpanID(ev.SpanId)
@@ -249,6 +252,7 @@ func convertToOTLP(meta traceRequestMeta, events []*tracepb2.TraceEvent) (otlpRe
 		}
 	}
 
+	logs := extractLogEntries(meta, events, builders)
 	var spans []spanBuilder
 	for _, builder := range builders {
 		if builder.Name == "" {
@@ -299,7 +303,7 @@ func convertToOTLP(meta traceRequestMeta, events []*tracepb2.TraceEvent) (otlpRe
 			}},
 		})
 	}
-	return request, spans, nil
+	return request, spans, logs, nil
 }
 
 func applySpanStart(builder *spanBuilder, start *tracepb2.SpanStart, t time.Time) {
@@ -610,40 +614,6 @@ func postOTLP(req *http.Request, payload otlpRequest) error {
 		return err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(httpReq)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-	return nil
-}
-
-func postDerivedMetrics(req *http.Request, meta traceRequestMeta, spans []spanBuilder) error {
-	var lines strings.Builder
-	now := time.Now().UnixMilli()
-	for _, span := range spans {
-		if span.Synthetic || span.Endpoint == "" {
-			continue
-		}
-		labels := fmt.Sprintf(`app_id=%q,env_id=%q,service=%q,endpoint=%q`, meta.AppID, meta.EnvID, span.Service, span.Endpoint)
-		duration := span.End.Sub(span.Start).Seconds()
-		lines.WriteString(fmt.Sprintf("neckdash_trace_requests_total{%s} 1 %d\n", labels, now))
-		lines.WriteString(fmt.Sprintf("neckdash_trace_request_duration_seconds{%s} %f %d\n", labels, duration, now))
-		if span.Error != "" || span.StatusCode != 0 && span.StatusCode != int(tracepb2.StatusCode_STATUS_CODE_OK) {
-			lines.WriteString(fmt.Sprintf("neckdash_trace_errors_total{%s} 1 %d\n", labels, now))
-		}
-	}
-	if lines.Len() == 0 {
-		return nil
-	}
-	httpReq, err := http.NewRequestWithContext(req.Context(), http.MethodPost, victoriaMetricsImportURL(), strings.NewReader(lines.String()))
-	if err != nil {
-		return err
-	}
-	httpReq.Header.Set("Content-Type", "text/plain")
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
 		return err

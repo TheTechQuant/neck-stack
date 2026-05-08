@@ -1,5 +1,6 @@
 #!/usr/bin/env zx
 import { $, fs } from "zx";
+import { parse } from "@bomb.sh/args";
 import chalk from "chalk";
 
 $.verbose = true;
@@ -27,12 +28,38 @@ async function loadDotEnv(file = ".env") {
 await loadDotEnv();
 console.log(`\n${chalk.bold.cyan("Deploy with Komodo")}`);
 
-const args = new Set(process.argv.slice(3));
-const skipInfra = args.has("--skip-infra");
-const skipMigrations = args.has("--skip-migrations");
-const migrateOnly = args.has("--migrate-only");
-const deployOnly = args.has("--deploy-only");
-const dryRun = args.has("--dry-run");
+const args = parse(process.argv.slice(3), {
+  alias: { h: "help" },
+  boolean: ["deploy-only", "dry-run", "help", "migrate-only", "skip-infra", "skip-migrations"],
+});
+
+const allowedArgs = new Set(["_", "deploy-only", "dry-run", "help", "migrate-only", "skip-infra", "skip-migrations"]);
+const unknownArgs = Object.keys(args).filter((key) => !allowedArgs.has(key));
+if (unknownArgs.length > 0) {
+  throw new Error(`Unknown option${unknownArgs.length === 1 ? "" : "s"}: ${unknownArgs.map((key) => `--${key}`).join(", ")}`);
+}
+
+if (args.help) {
+  console.log(`
+Usage:
+  pnpm deploy:komodo [options]
+
+Options:
+  --skip-infra         Do not regenerate deploy/encore/infra.prod.json
+  --skip-migrations    Skip the migration webhook
+  --migrate-only       Run only the migration webhook
+  --deploy-only        Run only the stack deploy webhook
+  --dry-run            Print webhook calls without sending them
+  -h, --help           Show help
+`.trim());
+  process.exit(0);
+}
+
+const skipInfra = args["skip-infra"] === true;
+const skipMigrations = args["skip-migrations"] === true;
+const migrateOnly = args["migrate-only"] === true;
+const deployOnly = args["deploy-only"] === true;
+const dryRun = args["dry-run"] === true;
 
 if (migrateOnly && deployOnly) {
   throw new Error("Use either --migrate-only or --deploy-only, not both.");

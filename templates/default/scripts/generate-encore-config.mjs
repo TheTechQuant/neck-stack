@@ -22,6 +22,7 @@ const defaultNeckDashImage = "ghcr.io/thetechquant/neck-stack/neckdash:latest";
 const defaultNeckDashUIImage = "ghcr.io/thetechquant/neck-stack/neckdash-ui:latest";
 const defaultVictoriaTracesImage = "victoriametrics/victoria-traces:latest";
 const defaultVictoriaMetricsImage = "victoriametrics/victoria-metrics:latest";
+const defaultVictoriaLogsImage = "victoriametrics/victoria-logs:latest";
 const prodPlatform = process.env.PROD_PLATFORM || "__PROD_PLATFORM__";
 const komodoServer = "__KOMODO_SERVER__";
 const gitProvider = "__GIT_PROVIDER__";
@@ -263,10 +264,12 @@ ${backendEnvironment()}
       PORT: 8080
       ENCORE_AUTH_KEY: ${composeEnv("ENCORE_AUTH_KEY", defaultEncoreAuthKey)}
       NECKDASH_REQUIRE_TRACE_AUTH: \${NECKDASH_REQUIRE_TRACE_AUTH:-true}
+      NECKDASH_TRACE_SERVICE_FANOUT_LIMIT: \${NECKDASH_TRACE_SERVICE_FANOUT_LIMIT:-32}
       VICTORIA_TRACES_OTLP_URL: \${VICTORIA_TRACES_OTLP_URL:-http://victoria-traces:10428/insert/opentelemetry/v1/traces}
       VICTORIA_TRACES_QUERY_URL: \${VICTORIA_TRACES_QUERY_URL:-http://victoria-traces:10428/select/jaeger}
-      VICTORIA_METRICS_IMPORT_URL: \${VICTORIA_METRICS_IMPORT_URL:-http://victoria-metrics:8428/api/v1/import/prometheus}
       VICTORIA_METRICS_QUERY_URL: \${VICTORIA_METRICS_QUERY_URL:-http://victoria-metrics:8428/api/v1/query}
+      VICTORIA_LOGS_INSERT_URL: \${VICTORIA_LOGS_INSERT_URL:-http://victoria-logs:9428/insert/jsonline?_stream_fields=app_id,env_id,service,level&_time_field=timestamp&_msg_field=message}
+      VICTORIA_LOGS_QUERY_URL: \${VICTORIA_LOGS_QUERY_URL:-http://victoria-logs:9428/select/logsql/query}
       NECKDASH_META_PATH: /catalog/meta.json
       NECKDASH_OPENAPI_PATH: /catalog/openapi.json
     expose:
@@ -278,6 +281,8 @@ ${backendEnvironment()}
       victoria-traces:
         condition: service_started
       victoria-metrics:
+        condition: service_started
+      victoria-logs:
         condition: service_started`,
 `  neckdash-ui:
     image: \${NECKDASH_UI_IMAGE:-${defaultNeckDashUIImage}}
@@ -318,6 +323,18 @@ ${backendEnvironment()}
       - victoria_metrics_data:/victoria-metrics-data
     expose:
       - "8428"`,
+`  victoria-logs:
+    image: \${VICTORIA_LOGS_IMAGE:-${defaultVictoriaLogsImage}}
+    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
+    restart: unless-stopped
+    command:
+      - -httpListenAddr=:9428
+      - -storageDataPath=/victoria-logs-data
+      - -retentionPeriod=\${VICTORIA_LOGS_RETENTION:-30d}
+    volumes:
+      - victoria_logs_data:/victoria-logs-data
+    expose:
+      - "9428"`,
   ];
 
   if (hasPostgres()) {
@@ -413,7 +430,7 @@ ${backendEnvironment()}
         condition: service_healthy`);
   }
 
-  const volumes = ["  caddy_data:", "  caddy_config:", "  victoria_traces_data:", "  victoria_metrics_data:"];
+  const volumes = ["  caddy_data:", "  caddy_config:", "  victoria_traces_data:", "  victoria_metrics_data:", "  victoria_logs_data:"];
   if (hasPostgres()) volumes.push("  postgres_data:");
   if (hasCache()) volumes.push("  redis_data:");
   if (hasPubSub()) volumes.push("  nsq_data:");
@@ -435,6 +452,7 @@ function komodoEnvLines() {
     `NECK_DASH_PASSWORD_HASH = ${neckDashPasswordHash}`,
     `ENCORE_AUTH_KEY = ${defaultEncoreAuthKey}`,
     "NECKDASH_REQUIRE_TRACE_AUTH = true",
+    "NECKDASH_TRACE_SERVICE_FANOUT_LIMIT = 32",
     "NUXT_PUBLIC_ENCORE_TOOLBAR = true",
     "NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME = production",
     "NUXT_PUBLIC_API_BASE_URL = /api",
@@ -444,10 +462,12 @@ function komodoEnvLines() {
     "VICTORIA_TRACES_OTLP_URL = http://victoria-traces:10428/insert/opentelemetry/v1/traces",
     "VICTORIA_TRACES_QUERY_URL = http://victoria-traces:10428/select/jaeger",
     "VICTORIA_TRACES_RETENTION = 30d",
-    "VICTORIA_METRICS_IMPORT_URL = http://victoria-metrics:8428/api/v1/import/prometheus",
     "VICTORIA_METRICS_QUERY_URL = http://victoria-metrics:8428/api/v1/query",
     "VICTORIA_METRICS_REMOTE_WRITE_URL = http://victoria-metrics:8428/api/v1/write",
     "VICTORIA_METRICS_RETENTION = 90d",
+    "VICTORIA_LOGS_INSERT_URL = http://victoria-logs:9428/insert/jsonline?_stream_fields=app_id,env_id,service,level&_time_field=timestamp&_msg_field=message",
+    "VICTORIA_LOGS_QUERY_URL = http://victoria-logs:9428/select/logsql/query",
+    "VICTORIA_LOGS_RETENTION = 30d",
     `PROD_PLATFORM = ${prodPlatform}`,
     "",
   ];
@@ -468,6 +488,7 @@ function komodoEnvLines() {
   lines.push(`NECKDASH_UI_IMAGE = ${defaultNeckDashUIImage}`);
   lines.push(`VICTORIA_TRACES_IMAGE = ${defaultVictoriaTracesImage}`);
   lines.push(`VICTORIA_METRICS_IMAGE = ${defaultVictoriaMetricsImage}`);
+  lines.push(`VICTORIA_LOGS_IMAGE = ${defaultVictoriaLogsImage}`);
   if (hasPostgres()) {
     lines.push(`MIGRATIONS_IMAGE = ${registry}/migrations:prod`);
   }
