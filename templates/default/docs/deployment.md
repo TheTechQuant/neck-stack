@@ -66,40 +66,29 @@ Relevant variables:
 - `POSTGRES_PASSWORD`, only when SQL databases exist.
 - `REDIS_PASSWORD`, only when cache exists.
 - Encore `secret(...)` declarations, by exact secret name.
-- `ENCORE_DASHBOARD_PASSWORD_HASH`, for the protected dashboard redirect.
-- `NECK_DASH_PASSWORD_HASH`, for the protected NECK Dash UI.
-- `ENCORE_AUTH_KEY`, shared by the Encore runtime trace signer and NECK Dash receiver.
+- `NECK_DASH_PASSWORD_HASH`, for `https://DOMAIN/__neck_dash`.
+- `ENCORE_AUTH_KEY`, declared in Encore infra as service auth and shared by the runtime trace signer plus NECK Dash receiver.
 - `VICTORIA_METRICS_REMOTE_WRITE_URL`, used by Encore's Prometheus remote-write metrics exporter. Defaults to the private VictoriaMetrics service.
 - `VICTORIA_LOGS_INSERT_URL` and `VICTORIA_LOGS_QUERY_URL`, used by NECK Dash for structured log ingestion and search. Defaults point at the private VictoriaLogs service.
 
-To generate a new Caddy-compatible dashboard hash:
+To generate a new Caddy-compatible NECK Dash hash:
 
 ```bash
 docker run --rm caddy:2.10-alpine caddy hash-password --plaintext 'new-password'
 ```
 
-Set the output as `ENCORE_DASHBOARD_PASSWORD_HASH`.
-
-## Encore Dashboard
-
-Caddy exposes `ENCORE_DASHBOARD_DOMAIN` and protects it with HTTP Basic Auth:
-
-- `ENCORE_DASHBOARD_USER`, default `admin`.
-- `ENCORE_DASHBOARD_PASSWORD_HASH`, generated at scaffold time.
-- `ENCORE_DASHBOARD_URL`, default `https://app.encore.cloud/__APP_ID__`.
-
-This is a protected redirect to Encore Cloud, not the local development dashboard. The local dashboard belongs to `encore run`.
+Set the output as `NECK_DASH_PASSWORD_HASH`.
 
 ## NECK Dash
 
-Caddy exposes `NECK_DASH_DOMAIN` and protects it with HTTP Basic Auth:
+Caddy exposes `https://DOMAIN/__neck_dash` and protects the UI plus `/__neck_dash/api` with HTTP Basic Auth. The only exception is `/__neck_dash/api/trace`, which must remain reachable by backend trace exporters and is still validated by Encore trace auth:
 
 - `NECK_DASH_USER`, default `admin`.
 - `NECK_DASH_PASSWORD_HASH`, generated at scaffold time.
 
 The generated Encore infra config enables the official Prometheus remote-write metrics provider with `VICTORIA_METRICS_REMOTE_WRITE_URL`. That path carries Encore runtime metrics such as request counters and memory gauges, plus any custom metrics declared with `encore.dev/metrics`. NECK Dash queries VictoriaMetrics for Insights, request metrics, runtime metrics, and custom metric samples.
 
-NECK Dash also ships a `/trace` ingestion adapter that validates Encore trace signatures, converts Encore trace streams to OpenTelemetry JSON, and forwards them to VictoriaTraces. Structured `encore.dev/log` events in those trace streams are written once to VictoriaLogs as searchable fields with `trace_id` and `span_id` preserved for correlation. The Logs tab queries VictoriaLogs, and `/api/logs/tail` proxies VictoriaLogs live tailing as NDJSON for terminal use.
+NECK Dash also ships a `/trace` ingestion adapter that validates Encore trace signatures, converts Encore trace streams to OpenTelemetry JSON, and forwards them to VictoriaTraces. Backends inside the generated Compose stack should post to `http://neckdash:8080/trace`; the equivalent single-domain route is `https://DOMAIN/__neck_dash/api/trace`. Structured `encore.dev/log` events in those trace streams are written once to VictoriaLogs as searchable fields with `trace_id` and `span_id` preserved for correlation. The Logs tab queries VictoriaLogs, and `/__neck_dash/api/logs/tail` proxies VictoriaLogs live tailing as NDJSON for terminal use.
 
 For high-volume apps, NECK Dash keeps exploratory reads bounded: trace listing defaults to the last hour and caps all-service fanout with `NECKDASH_TRACE_SERVICE_FANOUT_LIMIT`; log listing defaults to the last hour with a hard result limit; live log tailing requires at least one query, service, level, or trace-id filter.
 

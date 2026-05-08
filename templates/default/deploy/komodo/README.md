@@ -18,4 +18,4 @@ The generated GitLab CI expects `KOMODO_DEPLOY_WEBHOOK_URL`. It only needs `KOMO
 
 GitHub Actions uses the same deploy script and expects equivalent repository secrets. See `docs/deployment.md`.
 
-The Caddy service exposes `ENCORE_DASHBOARD_DOMAIN` with HTTP Basic Auth and redirects to `ENCORE_DASHBOARD_URL`, which defaults to the Encore Cloud app page. Override `ENCORE_DASHBOARD_PASSWORD_HASH` before deploy if you do not want to use the scaffolded first password.
+The Caddy service uses a single public host from `DOMAIN`: Nuxt at `/`, Encore at `/api`, and NECK Dash at `/__neck_dash` with its API at `/__neck_dash/api`. Only `/__neck_dash/api/trace` bypasses dashboard Basic Auth so backend trace exporters can post there; NECK Dash still validates Encore trace auth. Override `NECK_DASH_PASSWORD_HASH` before deploy if you do not want to use the scaffolded first password.

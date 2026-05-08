@@ -16,11 +16,6 @@ const templateDir = path.join(rootDir, "templates", "default");
 const stringOptions = [
   "name",
   "domain",
-  "dashboard-domain",
-  "dashboard-user",
-  "dashboard-url",
-  "dashboard-password",
-  "neckdash-domain",
   "neckdash-user",
   "neckdash-password",
   "caddy-email",
@@ -56,12 +51,7 @@ Usage:
 
 Options:
   --name <name>                         Package/app display name when target path differs
-  --domain <domain>                     Public frontend domain
-  --dashboard-domain <domain>           Basic-auth protected Encore dashboard redirect domain
-  --dashboard-user <user>               Basic-auth user for Encore dashboard redirect
-  --dashboard-url <url>                 Target URL for the protected Encore dashboard redirect
-  --dashboard-password <value>          Basic-auth password for Encore dashboard redirect
-  --neckdash-domain <domain>            Basic-auth protected self-hosted NECK Dash domain
+  --domain <domain>                     Public app domain; /api and /__neck_dash are routed on this host
   --neckdash-user <user>                Basic-auth user for NECK Dash
   --neckdash-password <value>           Basic-auth password for NECK Dash
   --caddy-email <email>                 ACME email for Caddy certificates
@@ -118,10 +108,6 @@ function parseCliArgs(argv) {
     positionalName: positional[0],
     options: {
       caddyEmail: parsed["caddy-email"],
-      dashboardDomain: parsed["dashboard-domain"],
-      dashboardPassword: parsed["dashboard-password"],
-      dashboardUrl: parsed["dashboard-url"],
-      dashboardUser: parsed["dashboard-user"],
       domain: parsed.domain,
       encoreAppId: parsed["encore-app-id"],
       encoreAuthKey: parsed["encore-auth-key"],
@@ -137,7 +123,6 @@ function parseCliArgs(argv) {
       komodoMigrateWebhookUrl: parsed["komodo-migrate-webhook-url"],
       komodoServer: parsed["komodo-server"],
       name: parsed.name,
-      neckdashDomain: parsed["neckdash-domain"],
       neckdashPassword: parsed["neckdash-password"],
       neckdashUser: parsed["neckdash-user"],
       prodPlatform: parsed["prod-platform"],
@@ -364,13 +349,9 @@ async function main() {
   if (!yes) {
     section("Domains");
   }
-  const domain = await promptValue("Frontend domain", options.domain || defaultDomain, yes);
-  const dashboardDomain = await promptValue("Encore dashboard domain", options.dashboardDomain || `encore.${domain}`, yes);
-  const neckDashDomain = await promptValue("NECK Dash domain", options.neckdashDomain || `dash.${domain}`, yes);
+  const domain = await promptValue("App domain", options.domain || defaultDomain, yes);
   const caddyAcmeEmail = await promptValue("Caddy ACME email", options.caddyEmail || `admin@${domain}`, yes);
-  const dashboardUser = await promptValue("Encore dashboard user", options.dashboardUser || "admin", yes);
-  const dashboardUrl = await promptValue("Encore dashboard redirect URL", options.dashboardUrl || `https://app.encore.cloud/${appSlug}`, yes);
-  const neckDashUser = await promptValue("NECK Dash user", options.neckdashUser || "admin", yes);
+  const neckDashUser = await promptValue("NECK Dash user for /__neck_dash", options.neckdashUser || "admin", yes);
 
   if (!yes) {
     section("Deployment");
@@ -399,8 +380,6 @@ async function main() {
   const shouldInstall = options.install !== false;
   const shouldGit = options.git !== false;
   const force = options.force === true;
-  const dashboardPassword = options.dashboardPassword || secretToken();
-  const dashboardPasswordHash = bcrypt.hashSync(dashboardPassword, 12);
   const neckDashPassword = options.neckdashPassword || secretToken();
   const neckDashPasswordHash = bcrypt.hashSync(neckDashPassword, 12);
 
@@ -416,15 +395,9 @@ async function main() {
     POSTGRES_USER: postgresIdent(appSlug),
     POSTGRES_PASSWORD_DEFAULT: secretToken(),
     REDIS_PASSWORD_DEFAULT: secretToken(),
-    ENCORE_DASHBOARD_PASSWORD_DEFAULT: dashboardPassword,
-    ENCORE_DASHBOARD_PASSWORD_HASH_DEFAULT: dashboardPasswordHash,
-    ENCORE_DASHBOARD_PASSWORD_HASH_COMPOSE_DEFAULT: dashboardPasswordHash.replaceAll("$", () => "$$"),
-    ENCORE_DASHBOARD_DOMAIN: dashboardDomain,
-    ENCORE_DASHBOARD_USER: dashboardUser,
-    ENCORE_DASHBOARD_URL: dashboardUrl,
     NECK_DASH_PASSWORD_DEFAULT: neckDashPassword,
     NECK_DASH_PASSWORD_HASH_DEFAULT: neckDashPasswordHash,
-    NECK_DASH_DOMAIN: neckDashDomain,
+    NECK_DASH_PASSWORD_HASH_DEFAULT_COMPOSE: neckDashPasswordHash.replaceAll("$", "$$$$"),
     NECK_DASH_USER: neckDashUser,
     ENCORE_AUTH_KEY_DEFAULT: secretToken(),
     CADDY_ACME_EMAIL: caddyAcmeEmail,
@@ -471,7 +444,7 @@ async function main() {
   if (!shouldInstall) console.log(`  ${chalk.cyan("pnpm dlx zx scripts/install.mjs")}`);
   console.log(`  ${chalk.cyan("pnpm check")}`);
   console.log(`  ${chalk.cyan("pnpm dev")}`);
-  outro("Dashboard password and deploy defaults were written to .env.");
+  outro("NECK Dash password and deploy defaults were written to .env.");
 }
 
 main().catch((err) => {

@@ -59,7 +59,9 @@ pnpm deploy:komodo
 Production is driven by Encore metadata:
 
 - Caddy serves Nuxt on `DOMAIN` and proxies `/api/*` to Encore, so the frontend and backend share one public host.
-- NECK Dash is served on `NECK_DASH_DOMAIN` with Basic Auth and receives backend traces at `http://neckdash:8080/trace` inside Compose.
+- NECK Dash is served at `/__neck_dash` on the same `DOMAIN`, with its API at `/__neck_dash/api` and Basic Auth protecting every dashboard/API route except trace ingestion.
+- Backend traces are received at `http://neckdash:8080/trace` inside Compose; the equivalent single-domain ingestion path is `https://DOMAIN/__neck_dash/api/trace` and is protected by Encore trace auth, not Basic Auth.
+- `ENCORE_AUTH_KEY` is declared in the generated Encore infra config and shared with NECK Dash, so service auth and trace ingestion use the same generated deployment secret.
 - NECK Dash uses published `ghcr.io/thetechquant/neck-stack/neckdash` and `ghcr.io/thetechquant/neck-stack/neckdash-ui` images.
 - VictoriaTraces is included for trace storage; VictoriaMetrics stores Encore runtime metrics and custom app metrics through Encore's Prometheus remote-write primitive; VictoriaLogs stores structured `encore.dev/log` events extracted from traces.
 - `SQLDatabase` declarations add private Postgres with `encoredotdev/postgres` plus app migrations.
@@ -77,13 +79,9 @@ Set `PROD_PLATFORM=linux/arm64` to target ARM production hosts. The scaffolded d
 
 See [docs/deployment.md](docs/deployment.md) for CI variables, Komodo setup, dashboard access, and migration flow.
 
-## Encore Dashboard
-
-`ENCORE_DASHBOARD_DOMAIN` is served by Caddy with HTTP Basic Auth and redirects to `ENCORE_DASHBOARD_URL`, defaulting to the Encore Cloud app page. The generated password and bcrypt hash are in `.env.example`; override the hash in Komodo or server `.env` before deploying.
-
 ## NECK Dash
 
-`NECK_DASH_DOMAIN` is the default production observability UI. The backend exports Encore metrics to VictoriaMetrics with the official Prometheus remote-write infra primitive. NECK Dash queries Insights, built-in metrics, and custom metrics from VictoriaMetrics, structured logs from VictoriaLogs, and reads flow, service catalog, and OpenAPI data from `/api` on the dashboard host. The sidecar also includes a trace ingestion endpoint for deployments that explicitly configure Encore trace export.
+`https://DOMAIN/__neck_dash` is the default production observability UI. The backend exports Encore metrics to VictoriaMetrics with the official Prometheus remote-write infra primitive. NECK Dash queries Insights, built-in metrics, and custom metrics from VictoriaMetrics, structured logs from VictoriaLogs, and reads flow, service catalog, and OpenAPI data from `/__neck_dash/api`. Trace ingestion is available privately at `http://neckdash:8080/trace` and publicly at `/__neck_dash/api/trace`; both paths rely on Encore trace signatures.
 
 High-volume installs are expected: trace lists are time-bounded and service-fanout limited, direct trace-id searches use a direct lookup, log searches are time/row limited, and live log tailing requires a filter.
 

@@ -9,11 +9,6 @@ const defaultPostgresPassword = "__POSTGRES_PASSWORD_DEFAULT__";
 const defaultRedisPassword = "__REDIS_PASSWORD_DEFAULT__";
 const domain = process.env.DOMAIN || "__DOMAIN__";
 const caddyAcmeEmail = process.env.CADDY_ACME_EMAIL || "__CADDY_ACME_EMAIL__";
-const encoreDashboardDomain = process.env.ENCORE_DASHBOARD_DOMAIN || "__ENCORE_DASHBOARD_DOMAIN__";
-const encoreDashboardUser = process.env.ENCORE_DASHBOARD_USER || "__ENCORE_DASHBOARD_USER__";
-const encoreDashboardPasswordHash = process.env.ENCORE_DASHBOARD_PASSWORD_HASH || "__ENCORE_DASHBOARD_PASSWORD_HASH_DEFAULT__";
-const encoreDashboardUrl = process.env.ENCORE_DASHBOARD_URL || "__ENCORE_DASHBOARD_URL__";
-const neckDashDomain = process.env.NECK_DASH_DOMAIN || "__NECK_DASH_DOMAIN__";
 const neckDashUser = process.env.NECK_DASH_USER || "__NECK_DASH_USER__";
 const neckDashPasswordHash = process.env.NECK_DASH_PASSWORD_HASH || "__NECK_DASH_PASSWORD_HASH_DEFAULT__";
 const defaultEncoreAuthKey = "__ENCORE_AUTH_KEY_DEFAULT__";
@@ -84,6 +79,13 @@ function renderInfraConfig() {
     graceful_shutdown: {
       total: 30,
     },
+    auth: [
+      {
+        type: "key",
+        id: 1,
+        key: { $env: "ENCORE_AUTH_KEY" },
+      },
+    ],
     metrics: {
       type: "prometheus",
       collection_interval: 15,
@@ -206,11 +208,6 @@ function renderCompose() {
     environment:
       DOMAIN: \${DOMAIN:-${domain}}
       CADDY_ACME_EMAIL: \${CADDY_ACME_EMAIL:-${caddyAcmeEmail}}
-      ENCORE_DASHBOARD_DOMAIN: \${ENCORE_DASHBOARD_DOMAIN:-${encoreDashboardDomain}}
-      ENCORE_DASHBOARD_USER: \${ENCORE_DASHBOARD_USER:-${encoreDashboardUser}}
-      ENCORE_DASHBOARD_PASSWORD_HASH: ${composeEnv("ENCORE_DASHBOARD_PASSWORD_HASH", encoreDashboardPasswordHash)}
-      ENCORE_DASHBOARD_URL: \${ENCORE_DASHBOARD_URL:-${encoreDashboardUrl}}
-      NECK_DASH_DOMAIN: \${NECK_DASH_DOMAIN:-${neckDashDomain}}
       NECK_DASH_USER: \${NECK_DASH_USER:-${neckDashUser}}
       NECK_DASH_PASSWORD_HASH: ${composeEnv("NECK_DASH_PASSWORD_HASH", neckDashPasswordHash)}
     ports:
@@ -289,7 +286,8 @@ ${backendEnvironment()}
     platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
     restart: unless-stopped
     environment:
-      NUXT_PUBLIC_NECKDASH_API_BASE_URL: \${NUXT_PUBLIC_NECKDASH_API_BASE_URL:-/api}
+      NUXT_APP_BASE_URL: \${NUXT_APP_BASE_URL:-/__neck_dash/}
+      NUXT_PUBLIC_NECKDASH_API_BASE_URL: \${NUXT_PUBLIC_NECKDASH_API_BASE_URL:-/__neck_dash/api}
       NUXT_NECKDASH_API_INTERNAL_BASE_URL: \${NUXT_NECKDASH_API_INTERNAL_BASE_URL:-http://neckdash:8080}
       PORT: 3000
       HOST: 0.0.0.0
@@ -443,11 +441,6 @@ function komodoEnvLines() {
     "APP_ENV = production",
     `DOMAIN = ${domain}`,
     `CADDY_ACME_EMAIL = ${caddyAcmeEmail}`,
-    `ENCORE_DASHBOARD_DOMAIN = ${encoreDashboardDomain}`,
-    `ENCORE_DASHBOARD_USER = ${encoreDashboardUser}`,
-    `ENCORE_DASHBOARD_PASSWORD_HASH = ${encoreDashboardPasswordHash}`,
-    `ENCORE_DASHBOARD_URL = ${encoreDashboardUrl}`,
-    `NECK_DASH_DOMAIN = ${neckDashDomain}`,
     `NECK_DASH_USER = ${neckDashUser}`,
     `NECK_DASH_PASSWORD_HASH = ${neckDashPasswordHash}`,
     `ENCORE_AUTH_KEY = ${defaultEncoreAuthKey}`,
@@ -457,7 +450,8 @@ function komodoEnvLines() {
     "NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME = production",
     "NUXT_PUBLIC_API_BASE_URL = /api",
     "NUXT_API_INTERNAL_BASE_URL = http://backend:8080",
-    "NUXT_PUBLIC_NECKDASH_API_BASE_URL = /api",
+    "NUXT_APP_BASE_URL = /__neck_dash/",
+    "NUXT_PUBLIC_NECKDASH_API_BASE_URL = /__neck_dash/api",
     "NUXT_NECKDASH_API_INTERNAL_BASE_URL = http://neckdash:8080",
     "VICTORIA_TRACES_OTLP_URL = http://victoria-traces:10428/insert/opentelemetry/v1/traces",
     "VICTORIA_TRACES_QUERY_URL = http://victoria-traces:10428/select/jaeger",

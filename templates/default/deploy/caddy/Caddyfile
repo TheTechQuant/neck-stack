@@ -5,6 +5,29 @@
 {$DOMAIN} {
 	encode zstd gzip
 
+	@neckDashProtected {
+		path /__neck_dash /__neck_dash/*
+		not path /__neck_dash/api/trace
+	}
+	basic_auth @neckDashProtected {
+		{$NECK_DASH_USER} {$NECK_DASH_PASSWORD_HASH}
+	}
+
+	@neckDashRoot path /__neck_dash
+	redir @neckDashRoot /__neck_dash/ 308
+
+	handle /__neck_dash/api/trace {
+		reverse_proxy neckdash:8080
+	}
+
+	handle_path /__neck_dash/api/* {
+		reverse_proxy neckdash:8080
+	}
+
+	handle /__neck_dash/* {
+		reverse_proxy neckdash-ui:3000
+	}
+
 	handle_path /api/* {
 		reverse_proxy backend:8080
 	}
@@ -15,28 +38,5 @@
 
 	handle {
 		reverse_proxy frontend:3000
-	}
-}
-
-{$ENCORE_DASHBOARD_DOMAIN} {
-	encode zstd gzip
-	basic_auth {
-		{$ENCORE_DASHBOARD_USER} {$ENCORE_DASHBOARD_PASSWORD_HASH}
-	}
-	redir {$ENCORE_DASHBOARD_URL} 302
-}
-
-{$NECK_DASH_DOMAIN} {
-	encode zstd gzip
-	basic_auth {
-		{$NECK_DASH_USER} {$NECK_DASH_PASSWORD_HASH}
-	}
-
-	handle_path /api/* {
-		reverse_proxy neckdash:8080
-	}
-
-	handle {
-		reverse_proxy neckdash-ui:3000
 	}
 }

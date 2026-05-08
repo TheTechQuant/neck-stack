@@ -115,6 +115,19 @@ type spanBuilder struct {
 //
 //encore:api public raw method=POST path=/trace
 func Trace(w http.ResponseWriter, req *http.Request) {
+	handleTrace(w, req)
+}
+
+// TraceFromSingleDomain receives Encore runtime trace streams through the
+// public single-domain Caddy route without path stripping, preserving the
+// request path used by Encore trace signatures.
+//
+//encore:api public raw method=POST path=/__neck_dash/api/trace
+func TraceFromSingleDomain(w http.ResponseWriter, req *http.Request) {
+	handleTrace(w, req)
+}
+
+func handleTrace(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -215,6 +228,9 @@ func validateTraceAuth(req *http.Request) error {
 	raw, err := base64.RawStdEncoding.DecodeString(req.Header.Get("X-Encore-Auth"))
 	if err != nil || len(raw) < 4+sha256.Size {
 		return fmt.Errorf("invalid X-Encore-Auth")
+	}
+	if binary.BigEndian.Uint32(raw[0:4]) != 1 {
+		return fmt.Errorf("invalid trace auth key id")
 	}
 	mac := hmac.New(sha256.New, []byte(key))
 	_, _ = fmt.Fprintf(mac, "%s\x00%s", dateHeader, req.URL.Path)
