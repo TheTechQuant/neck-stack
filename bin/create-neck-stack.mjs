@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { $, fs, path } from "zx";
 import { randomBytes } from "node:crypto";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { parse } from "@bomb.sh/args";
 import { cancel, intro, isCancel, log, outro, text } from "@clack/prompts";
@@ -330,12 +331,41 @@ async function initEncorePlatform(backendDir, appId, authKey) {
     await $`encore auth login --auth-key=${authKey}`;
   }
 
+  let linkedAppId = appId;
+  const tempDir = await fs.mkdtemp(path.join(tmpdir(), "create-neck-stack-encore-"));
+
   try {
-    await $({ cwd: backendDir })`encore app init ${appId} --lang=ts`;
+    await $({ cwd: tempDir })`encore app init ${appId} --lang=ts`;
+    const generated = JSON.parse(await fs.readFile(path.join(tempDir, "encore.app"), "utf8"));
+    linkedAppId = String(generated.id || "").trim();
+    if (!linkedAppId) {
+      throw new Error("Encore created an unlinked app config. Run `encore auth login` first or pass `--encore-auth-key`.");
+    }
+  } catch (initError) {
+    try {
+      await $({ cwd: backendDir })`encore app link ${appId} --force`;
+      return;
+    } catch (linkError) {
+      throw new Error(
+        [
+          `Encore app registration failed for ${appId}.`,
+          "Run `encore auth login` first, pass `--encore-auth-key`, choose a different `--encore-app-id`,",
+          "or regenerate with `--no-encore-platform` for an unlinked local-only app.",
+          initError instanceof Error ? initError.message : String(initError),
+          linkError instanceof Error ? linkError.message : String(linkError),
+        ].join("\n"),
+      );
+    }
+  } finally {
+    await fs.rm(tempDir, { force: true, recursive: true });
+  }
+
+  try {
+    await $({ cwd: backendDir })`encore app link ${linkedAppId} --force`;
   } catch (error) {
     throw new Error(
       [
-        `Encore app registration failed for ${appId}.`,
+        `Encore app link failed for ${linkedAppId}.`,
         "Run `encore auth login` first, pass `--encore-auth-key`, choose a different `--encore-app-id`,",
         "or regenerate with `--no-encore-platform` for an unlinked local-only app.",
         error instanceof Error ? error.message : String(error),
