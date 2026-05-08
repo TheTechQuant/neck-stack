@@ -13,50 +13,78 @@ import (
 )
 
 func TestValidateTraceAuthAcceptsPrivateAndSingleDomainPaths(t *testing.T) {
-	t.Setenv("ENCORE_AUTH_KEY", "trace-secret")
+	t.Setenv("NECKDASH_TRACE_AUTH_KEYS", "test-app=trace-secret")
 	t.Setenv("NECKDASH_REQUIRE_TRACE_AUTH", "true")
 
 	for _, path := range []string{"/trace", "/__neck_dash/api/trace"} {
 		req := signedTraceRequest(t, path, "trace-secret")
+		req.Header.Set("X-Encore-App-ID", "test-app")
 		if err := validateTraceAuth(req); err != nil {
 			t.Fatalf("validateTraceAuth(%q) = %v", path, err)
 		}
 	}
 }
 
-func TestValidateTraceAuthBindsSignatureToRequestPath(t *testing.T) {
-	t.Setenv("ENCORE_AUTH_KEY", "trace-secret")
+func TestValidateTraceAuthAcceptsCanonicalPathWhenRawEndpointRewritesRequestPath(t *testing.T) {
+	t.Setenv("NECKDASH_TRACE_AUTH_KEYS", "test-app=trace-secret")
 	t.Setenv("NECKDASH_REQUIRE_TRACE_AUTH", "true")
 
 	req := signedTraceRequest(t, "/trace", "trace-secret")
-	req.URL.Path = "/__neck_dash/api/trace"
+	req.Header.Set("X-Encore-App-ID", "test-app")
+	req.URL.Path = "/"
+	if err := validateTraceAuth(req); err != nil {
+		t.Fatalf("validateTraceAuth rejected canonical path signature after raw endpoint rewrite: %v", err)
+	}
+}
+
+func TestValidateTraceAuthAcceptsCaddyForwardedTraceAuthHeader(t *testing.T) {
+	t.Setenv("NECKDASH_TRACE_AUTH_KEYS", "test-app=trace-secret")
+	t.Setenv("NECKDASH_REQUIRE_TRACE_AUTH", "true")
+
+	req := signedTraceRequest(t, "/__neck_dash/api/trace", "trace-secret")
+	req.Header.Set("X-Encore-App-ID", "test-app")
+	req.Header.Set("X-Neckdash-Trace-Auth", req.Header.Get("X-Encore-Auth"))
+	req.Header.Del("X-Encore-Auth")
+	if err := validateTraceAuth(req); err != nil {
+		t.Fatalf("validateTraceAuth rejected Caddy-forwarded trace auth header: %v", err)
+	}
+}
+
+func TestValidateTraceAuthRejectsNonIngestionPathSignature(t *testing.T) {
+	t.Setenv("NECKDASH_TRACE_AUTH_KEYS", "test-app=trace-secret")
+	t.Setenv("NECKDASH_REQUIRE_TRACE_AUTH", "true")
+
+	req := signedTraceRequest(t, "/not-trace", "trace-secret")
+	req.Header.Set("X-Encore-App-ID", "test-app")
+	req.URL.Path = "/trace"
 	if err := validateTraceAuth(req); err == nil {
-		t.Fatal("validateTraceAuth accepted a signature for a different path")
+		t.Fatal("validateTraceAuth accepted a signature for a non-ingestion path")
 	}
 }
 
 func TestValidateTraceAuthRequiresConfiguredKey(t *testing.T) {
-	t.Setenv("ENCORE_AUTH_KEY", "")
+	t.Setenv("NECKDASH_TRACE_AUTH_KEYS", "")
 	t.Setenv("NECKDASH_REQUIRE_TRACE_AUTH", "true")
 
 	req := signedTraceRequest(t, "/trace", "trace-secret")
+	req.Header.Set("X-Encore-App-ID", "test-app")
 	if err := validateTraceAuth(req); err == nil {
-		t.Fatal("validateTraceAuth accepted a request without ENCORE_AUTH_KEY")
+		t.Fatal("validateTraceAuth accepted a request without NECKDASH_TRACE_AUTH_KEYS")
 	}
 }
 
 func TestValidateTraceAuthRequiresExpectedKeyID(t *testing.T) {
-	t.Setenv("ENCORE_AUTH_KEY", "trace-secret")
+	t.Setenv("NECKDASH_TRACE_AUTH_KEYS", "test-app=trace-secret")
 	t.Setenv("NECKDASH_REQUIRE_TRACE_AUTH", "true")
 
 	req := signedTraceRequestWithKeyID(t, "/trace", "trace-secret", 2)
+	req.Header.Set("X-Encore-App-ID", "test-app")
 	if err := validateTraceAuth(req); err == nil {
 		t.Fatal("validateTraceAuth accepted an unexpected key id")
 	}
 }
 
 func TestValidateTraceAuthUsesAppSpecificKeys(t *testing.T) {
-	t.Setenv("ENCORE_AUTH_KEY", "fallback-secret")
 	t.Setenv("NECKDASH_TRACE_AUTH_KEYS", "billing=billing-secret,core=core-secret")
 	t.Setenv("NECKDASH_REQUIRE_TRACE_AUTH", "true")
 

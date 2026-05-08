@@ -13,7 +13,10 @@
 	redir @neckDashRoot /__neck_dash/ 308
 
 	handle /__neck_dash/api/trace {
-		reverse_proxy neckdash:8080
+		reverse_proxy neckdash:8080 {
+			header_up X-Neckdash-Trace-Auth {http.request.header.X-Encore-Auth}
+			header_up -X-Encore-Auth
+		}
 	}
 
 	handle_path /__neck_dash/api/* {

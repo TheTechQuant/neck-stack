@@ -225,19 +225,37 @@ func validateTraceAuth(req *http.Request) error {
 	if diff := time.Since(requestDate); diff > 15*time.Minute || diff < -15*time.Minute {
 		return fmt.Errorf("trace signature date is outside allowed skew")
 	}
-	raw, err := base64.RawStdEncoding.DecodeString(req.Header.Get("X-Encore-Auth"))
+	authHeader := req.Header.Get("X-Neckdash-Trace-Auth")
+	if authHeader == "" {
+		authHeader = req.Header.Get("X-Encore-Auth")
+	}
+	raw, err := base64.RawStdEncoding.DecodeString(authHeader)
 	if err != nil || len(raw) < 4+sha256.Size {
 		return fmt.Errorf("invalid X-Encore-Auth")
 	}
 	if binary.BigEndian.Uint32(raw[0:4]) != 1 {
 		return fmt.Errorf("invalid trace auth key id")
 	}
-	mac := hmac.New(sha256.New, []byte(key))
-	_, _ = fmt.Fprintf(mac, "%s\x00%s", dateHeader, req.URL.Path)
-	if !hmac.Equal(mac.Sum(nil), raw[4:]) {
+	if !validTraceSignature([]byte(key), dateHeader, raw[4:], traceAuthPaths(req.URL.Path)) {
 		return fmt.Errorf("invalid trace signature")
 	}
 	return nil
+}
+
+func validTraceSignature(key []byte, dateHeader string, got []byte, paths []string) bool {
+	for _, path := range paths {
+		mac := hmac.New(sha256.New, key)
+		_, _ = fmt.Fprintf(mac, "%s\x00%s", dateHeader, path)
+		if hmac.Equal(mac.Sum(nil), got) {
+			return true
+		}
+	}
+	return false
+}
+
+func traceAuthPaths(requestPath string) []string {
+	paths := []string{"/trace", "/__neck_dash/api/trace"}
+	return paths
 }
 
 func traceAuthKeyForApp(appID string) string {
@@ -256,7 +274,7 @@ func traceAuthKeyForApp(appID string) string {
 			return strings.TrimSpace(value)
 		}
 	}
-	return os.Getenv("ENCORE_AUTH_KEY")
+	return ""
 }
 
 func convertToOTLP(meta traceRequestMeta, events []*tracepb2.TraceEvent) (otlpRequest, []spanBuilder, []victoriaLogEntry, error) {
