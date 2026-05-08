@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import chalk from "chalk";
 
-$.verbose = true;
+$.verbose = false;
 
 const requireAuth = process.argv.includes("--require");
 const authKey = String(process.env.ENCORE_CLOUD_AUTH_KEY || "").trim();

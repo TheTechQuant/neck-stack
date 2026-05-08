@@ -135,10 +135,14 @@ async function postWebhook(name, url) {
   }
 
   console.log(chalk.dim(`Calling ${name}`));
+  const previousVerbose = $.verbose;
+  $.verbose = false;
   const response = await fetch(url, {
     method: "POST",
     headers: webhookHeaders(body),
     body,
+  }).finally(() => {
+    $.verbose = previousVerbose;
   });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
