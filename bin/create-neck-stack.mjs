@@ -224,7 +224,8 @@ function readPromptResult(value) {
   return String(value).trim();
 }
 
-async function promptValue(label, fallback, yes) {
+async function promptValue(label, value, fallback, yes) {
+  if (value !== undefined && value !== "") return value;
   if (yes) return fallback;
   const answer = await text({
     defaultValue: fallback,
@@ -234,7 +235,8 @@ async function promptValue(label, fallback, yes) {
   return readPromptResult(answer) || fallback;
 }
 
-async function promptOptional(label, fallback, yes) {
+async function promptOptional(label, value, fallback, yes) {
+  if (value !== undefined && value !== "") return value;
   if (yes) return fallback;
   const answer = await text({
     defaultValue: fallback || undefined,
@@ -420,21 +422,21 @@ async function main() {
   if (!yes) {
     section("Domains");
   }
-  const domain = await promptValue("App domain", options.domain || defaultDomain, yes);
-  const neckDashUser = await promptValue("NECK Dash user for /__neck_dash", options.neckdashUser || "admin", yes);
+  const domain = await promptValue("App domain", options.domain, defaultDomain, yes);
+  const neckDashUser = await promptValue("NECK Dash user for /__neck_dash", options.neckdashUser, "admin", yes);
 
   if (!yes) {
     section("Deployment");
   }
-  const gitlabProject = await promptValue("GitLab project path", options.gitlabProject || `your-group/${appSlug}`, yes);
-  const registry = await promptValue("Image registry/repository", options.registry || `registry.gitlab.com/${gitlabProject}`, yes);
-  const prodPlatformInput = await promptValue("Production image platform", options.prodPlatform || "linux/amd64", yes);
+  const gitlabProject = await promptValue("GitLab project path", options.gitlabProject, `your-group/${appSlug}`, yes);
+  const registry = await promptValue("Image registry/repository", options.registry, `registry.gitlab.com/${gitlabProject}`, yes);
+  const prodPlatformInput = await promptValue("Production image platform", options.prodPlatform, "linux/amd64", yes);
   const prodPlatform = normalizeProdPlatform(prodPlatformInput);
-  const komodoServer = await promptValue("Komodo server", options.komodoServer || "server-prod", yes);
+  const komodoServer = await promptValue("Komodo server", options.komodoServer, "server-prod", yes);
   const gitProvider = options.gitProvider || "gitlab.com";
   const gitAccount = options.gitAccount || "gitlab";
   const webhookProvider = listenerProvider(gitProvider);
-  const komodoUrl = normalizeBaseUrl(await promptOptional("Komodo Core URL", options.komodoUrl || "", yes));
+  const komodoUrl = normalizeBaseUrl(await promptOptional("Komodo Core URL", options.komodoUrl, "", yes));
   const defaultDeployWebhookUrl = komodoListenerUrl(
     komodoUrl,
     webhookProvider,
@@ -447,12 +449,14 @@ async function main() {
   );
   const komodoDeployWebhookUrl = await promptOptional(
     "Komodo deploy webhook URL",
-    options.komodoDeployWebhookUrl || defaultDeployWebhookUrl,
+    options.komodoDeployWebhookUrl,
+    defaultDeployWebhookUrl,
     yes,
   );
   const komodoMigrateWebhookUrl = await promptOptional(
     "Komodo migration webhook URL",
-    options.komodoMigrateWebhookUrl || defaultMigrateWebhookUrl,
+    options.komodoMigrateWebhookUrl,
+    defaultMigrateWebhookUrl,
     yes,
   );
   const komodoWebhookSecret = options.komodoWebhookSecret || secretToken();
