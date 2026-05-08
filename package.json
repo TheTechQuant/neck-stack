@@ -1,6 +1,6 @@
 {
   "name": "create-neck-stack",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Create NECK stack apps: Nuxt.js, Encore.ts, Caddy, and Komodo.",
   "type": "module",
   "packageManager": "pnpm@10.26.1",

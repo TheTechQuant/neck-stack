@@ -211,6 +211,10 @@ function success(label) {
   log.success(label);
 }
 
+function warn(label) {
+  log.warn(label);
+}
+
 function readPromptResult(value) {
   if (isCancel(value)) {
     cancel("Cancelled.");
@@ -326,6 +330,24 @@ async function createWorkspaceLinks(target) {
   }
 }
 
+async function readEncoreAppID(appFile) {
+  const raw = await fs.readFile(appFile, "utf8");
+  try {
+    const parsed = JSON.parse(raw);
+    return String(parsed.id || "").trim();
+  } catch {
+    const match = raw.match(/"id"\s*:\s*"([^"]*)"/);
+    return match ? match[1].trim() : "";
+  }
+}
+
+async function writeLocalEncoreAppID(backendDir, appId) {
+  const appFile = path.join(backendDir, "encore.app");
+  const config = JSON.parse(await fs.readFile(appFile, "utf8"));
+  config.id = appId;
+  await fs.writeFile(appFile, `${JSON.stringify(config, null, 2)}\n`);
+}
+
 async function initEncorePlatform(backendDir, appId, authKey) {
   if (authKey) {
     await $`encore auth login --auth-key=${authKey}`;
@@ -336,25 +358,22 @@ async function initEncorePlatform(backendDir, appId, authKey) {
 
   try {
     await $({ cwd: tempDir })`encore app init ${appId} --lang=ts`;
-    const generated = JSON.parse(await fs.readFile(path.join(tempDir, "encore.app"), "utf8"));
-    linkedAppId = String(generated.id || "").trim();
+    linkedAppId = await readEncoreAppID(path.join(tempDir, "encore.app"));
     if (!linkedAppId) {
-      throw new Error("Encore created an unlinked app config. Run `encore auth login` first or pass `--encore-auth-key`.");
+      await writeLocalEncoreAppID(backendDir, appId);
+      warn(`Encore Cloud did not return a linked app id; wrote local Encore app id ${appId}.`);
+      return;
     }
   } catch (initError) {
     try {
       await $({ cwd: backendDir })`encore app link ${appId} --force`;
       return;
     } catch (linkError) {
-      throw new Error(
-        [
-          `Encore app registration failed for ${appId}.`,
-          "Run `encore auth login` first, pass `--encore-auth-key`, choose a different `--encore-app-id`,",
-          "or regenerate with `--no-encore-platform` for an unlinked local-only app.",
-          initError instanceof Error ? initError.message : String(initError),
-          linkError instanceof Error ? linkError.message : String(linkError),
-        ].join("\n"),
-      );
+      await writeLocalEncoreAppID(backendDir, appId);
+      warn(`Encore Cloud registration/link failed; wrote local Encore app id ${appId}.`);
+      warn(initError instanceof Error ? initError.message : String(initError));
+      warn(linkError instanceof Error ? linkError.message : String(linkError));
+      return;
     }
   } finally {
     await fs.rm(tempDir, { force: true, recursive: true });
@@ -363,14 +382,9 @@ async function initEncorePlatform(backendDir, appId, authKey) {
   try {
     await $({ cwd: backendDir })`encore app link ${linkedAppId} --force`;
   } catch (error) {
-    throw new Error(
-      [
-        `Encore app link failed for ${linkedAppId}.`,
-        "Run `encore auth login` first, pass `--encore-auth-key`, choose a different `--encore-app-id`,",
-        "or regenerate with `--no-encore-platform` for an unlinked local-only app.",
-        error instanceof Error ? error.message : String(error),
-      ].join("\n"),
-    );
+    await writeLocalEncoreAppID(backendDir, linkedAppId);
+    warn(`Encore app link failed for ${linkedAppId}; wrote the app id locally.`);
+    warn(error instanceof Error ? error.message : String(error));
   }
 }
 

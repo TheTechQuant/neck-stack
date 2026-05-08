@@ -50,7 +50,7 @@ pnpm create neck-stack my-app \
   --komodo-server server-prod
 ```
 
-By default the initializer registers the existing backend template with Encore Cloud using `encore app init <app-id>`, not `encore app create`, so it links the repo without scaffolding over the backend. Use `--no-encore-platform` for offline/local-only scaffolds. CI can authenticate with a masked `ENCORE_AUTH_KEY`.
+By default the initializer attempts to register the existing backend template with Encore Cloud using `encore app init <app-id>`, then links the generated backend without scaffolding over it. If Encore Cloud auth is unavailable, the scaffold still finishes and writes the requested local app id into `backend/encore.app`; use `encore app link <app-id>` later if you want Cloud linking. CI can authenticate with a masked `ENCORE_AUTH_KEY`.
 
 ## Production Shape
 
