@@ -123,10 +123,17 @@ Set these variables:
 
 - `ENCORE_AUTH_KEY`, optional but recommended for linked Encore apps.
 - `PROD_PLATFORM`, optional. Defaults to `__PROD_PLATFORM__`; set to `linux/arm64` for ARM production hosts.
-- `KOMODO_DEPLOY_WEBHOOK_URL`, required for deploy.
-- `KOMODO_MIGRATE_WEBHOOK_URL`, required only after SQL databases exist.
+- `KOMODO_URL`, optional when scaffolded with a Komodo Core URL. If set, CI derives listener URLs from the app id.
+- `KOMODO_WEBHOOK_SECRET`, recommended. Set it to Komodo Core's global webhook secret so listener calls are authenticated.
+- `KOMODO_DEPLOY_WEBHOOK_URL`, optional override for deploy.
+- `KOMODO_MIGRATE_WEBHOOK_URL`, optional override, needed only if you do not use `KOMODO_URL` and SQL databases exist.
 
-If these were supplied to `create-neck-stack`, they are already written into the ignored `.env` for manual deploys. CI providers still need them configured as protected variables/secrets.
+If `KOMODO_URL` was supplied to `create-neck-stack`, the generated CI file already contains it and derives:
+
+- `https://KOMODO_URL/listener/gitlab/stack/__APP_ID__/deploy`
+- `https://KOMODO_URL/listener/gitlab/action/__APP_ID__-migrate/main`
+
+CI providers still need `KOMODO_WEBHOOK_SECRET` configured as a protected secret/variable unless you intentionally run unauthenticated Komodo webhooks.
 
 GitLab uses its built-in registry by default:
 
@@ -146,8 +153,10 @@ Set these repository variables or secrets:
 - `REGISTRY_PASSWORD`, optional. Defaults to `GITHUB_TOKEN`.
 - `ENCORE_AUTH_KEY`, optional but recommended for linked Encore apps.
 - `PROD_PLATFORM`, optional. Defaults to `__PROD_PLATFORM__`; set to `linux/arm64` for ARM production hosts.
-- `KOMODO_DEPLOY_WEBHOOK_URL`, required for deploy.
-- `KOMODO_MIGRATE_WEBHOOK_URL`, required only after SQL databases exist.
+- `KOMODO_URL`, optional repository variable. If set, CI derives listener URLs from the app id.
+- `KOMODO_WEBHOOK_SECRET`, recommended repository secret.
+- `KOMODO_DEPLOY_WEBHOOK_URL`, optional override for deploy.
+- `KOMODO_MIGRATE_WEBHOOK_URL`, optional override, needed only if you do not use `KOMODO_URL` and SQL databases exist.
 
 The workflow is generated at `.github/workflows/ci.yml`.
 

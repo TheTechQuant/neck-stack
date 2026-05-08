@@ -12,6 +12,9 @@ env:
   FRONTEND_IMAGE: ${{ vars.REGISTRY_IMAGE || format('ghcr.io/{0}', github.repository) }}/frontend:${{ github.sha }}
   MIGRATIONS_IMAGE: ${{ vars.REGISTRY_IMAGE || format('ghcr.io/{0}', github.repository) }}/migrations:${{ github.sha }}
   PROD_PLATFORM: ${{ vars.PROD_PLATFORM || '__PROD_PLATFORM__' }}
+  APP_ID: __APP_ID__
+  KOMODO_URL: ${{ vars.KOMODO_URL || '__KOMODO_URL__' }}
+  KOMODO_WEBHOOK_PROVIDER: __KOMODO_WEBHOOK_PROVIDER__
 
 jobs:
   validate:
@@ -161,6 +164,7 @@ jobs:
       - name: Run Komodo migrations
         env:
           KOMODO_MIGRATE_WEBHOOK_URL: ${{ secrets.KOMODO_MIGRATE_WEBHOOK_URL }}
+          KOMODO_WEBHOOK_SECRET: ${{ secrets.KOMODO_WEBHOOK_SECRET }}
         run: pnpm deploy:komodo -- --skip-infra --migrate-only
 
   deploy-komodo:
@@ -184,4 +188,5 @@ jobs:
       - name: Deploy Komodo stack
         env:
           KOMODO_DEPLOY_WEBHOOK_URL: ${{ secrets.KOMODO_DEPLOY_WEBHOOK_URL }}
+          KOMODO_WEBHOOK_SECRET: ${{ secrets.KOMODO_WEBHOOK_SECRET }}
         run: pnpm deploy:komodo -- --skip-infra --deploy-only

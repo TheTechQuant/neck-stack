@@ -1,5 +1,6 @@
 #!/usr/bin/env zx
 import { $, fs } from "zx";
+import { createHmac } from "node:crypto";
 import { parse } from "@bomb.sh/args";
 import chalk from "chalk";
 
@@ -71,10 +72,37 @@ if (!skipInfra) {
 }
 
 function webhookEnv(name) {
-  const value = process.env[name];
+  const value = process.env[name] || derivedWebhookUrl(name);
   if (!value && dryRun) return `<${name}>`;
-  if (!value) throw new Error(`Missing ${name}. Set it to the Komodo webhook URL.`);
+  if (!value) throw new Error(`Missing ${name}. Set it to the Komodo webhook URL or set KOMODO_URL so it can be derived.`);
   return value;
+}
+
+function normalizedBaseUrl(input) {
+  return String(input || "").trim().replace(/\/+$/g, "");
+}
+
+function webhookProvider() {
+  const value = String(process.env.KOMODO_WEBHOOK_PROVIDER || "gitlab").toLowerCase();
+  return value.includes("github") ? "github" : "gitlab";
+}
+
+function appId() {
+  return process.env.APP_ID || "__APP_ID__";
+}
+
+function derivedWebhookUrl(name) {
+  const baseUrl = normalizedBaseUrl(process.env.KOMODO_URL);
+  if (!baseUrl) return "";
+
+  const provider = webhookProvider();
+  if (name === "KOMODO_DEPLOY_WEBHOOK_URL") {
+    return `${baseUrl}/listener/${provider}/stack/${encodeURIComponent(appId())}/deploy`;
+  }
+  if (name === "KOMODO_MIGRATE_WEBHOOK_URL") {
+    return `${baseUrl}/listener/${provider}/action/${encodeURIComponent(`${appId()}-migrate`)}/main`;
+  }
+  return "";
 }
 
 async function hasGeneratedSQLDatabases() {
@@ -87,14 +115,50 @@ async function hasGeneratedSQLDatabases() {
   }
 }
 
+function webhookPayload() {
+  const branch = process.env.CI_COMMIT_BRANCH || process.env.GITHUB_REF_NAME || "main";
+  const sha = process.env.CI_COMMIT_SHA || process.env.GITHUB_SHA || "";
+  return JSON.stringify({
+    object_kind: "push",
+    ref: `refs/heads/${branch}`,
+    checkout_sha: sha,
+    after: sha,
+  });
+}
+
+function webhookHeaders(body) {
+  const secret = process.env.KOMODO_WEBHOOK_SECRET || "";
+  const provider = webhookProvider();
+  const headers = {
+    "content-type": "application/json",
+  };
+
+  if (provider === "github") {
+    headers["x-github-event"] = "push";
+    if (secret) {
+      headers["x-hub-signature-256"] = `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
+    }
+  } else {
+    headers["x-gitlab-event"] = "Push Hook";
+    if (secret) headers["x-gitlab-token"] = secret;
+  }
+
+  return headers;
+}
+
 async function postWebhook(name, url) {
+  const body = webhookPayload();
   if (dryRun) {
     console.log(chalk.yellow(`[dry-run] would call ${name}: ${url}`));
     return;
   }
 
   console.log(chalk.dim(`Calling ${name}`));
-  const response = await fetch(url, { method: "POST" });
+  const response = await fetch(url, {
+    method: "POST",
+    headers: webhookHeaders(body),
+    body,
+  });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     throw new Error(`${name} failed: HTTP ${response.status}${body ? `\n${body}` : ""}`);

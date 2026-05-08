@@ -70,6 +70,8 @@ High-volume installs are treated as the normal case: Insights and metrics use ag
 
 Generated deployment config has one source of truth: `pnpm infra:encore` writes `deploy/encore/infra.prod.json`, `deploy/encore/meta.json`, `deploy/compose.yaml`, and `deploy/komodo/resources.toml` from `encore debug meta -f json`. There is no source-scan fallback; invalid Encore metadata should fail loudly.
 
+CI deploys can be configured with a single public Komodo Core URL. The generated deploy script derives deterministic GitLab/GitHub listener URLs from the app id and sends the Komodo webhook secret header, while still allowing explicit webhook URL overrides for custom setups.
+
 NECK Dash images are published from this repo as `ghcr.io/thetechquant/neck-stack/neckdash:latest` and `ghcr.io/thetechquant/neck-stack/neckdash-ui:latest`.
 
 ## Generated Commands

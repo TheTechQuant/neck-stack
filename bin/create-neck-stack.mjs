@@ -22,6 +22,8 @@ const stringOptions = [
   "registry",
   "prod-platform",
   "komodo-server",
+  "komodo-url",
+  "komodo-webhook-secret",
   "komodo-deploy-webhook-url",
   "komodo-migrate-webhook-url",
   "git-provider",
@@ -57,8 +59,10 @@ Options:
   --registry <registry>                 Container image registry/repository
   --prod-platform <platform>            linux/amd64, linux/arm64, amd64, or arm64
   --komodo-server <name>                Komodo server resource name
-  --komodo-deploy-webhook-url <url>     Optional Komodo stack deploy webhook
-  --komodo-migrate-webhook-url <url>    Optional Komodo migration webhook
+  --komodo-url <url>                    Public Komodo Core URL; webhook URLs are derived from it
+  --komodo-webhook-secret <value>       Secret sent to Komodo GitLab/GitHub listener webhooks
+  --komodo-deploy-webhook-url <url>     Optional explicit Komodo stack deploy webhook
+  --komodo-migrate-webhook-url <url>    Optional explicit Komodo migration webhook
   --git-provider <domain>               Git provider domain for Komodo
   --git-account <name>                  Komodo git account for private repos
   --run-directory <path>                Komodo stack checkout/run directory
@@ -119,6 +123,8 @@ function parseCliArgs(argv) {
       komodoDeployWebhookUrl: parsed["komodo-deploy-webhook-url"],
       komodoMigrateWebhookUrl: parsed["komodo-migrate-webhook-url"],
       komodoServer: parsed["komodo-server"],
+      komodoUrl: parsed["komodo-url"],
+      komodoWebhookSecret: parsed["komodo-webhook-secret"],
       name: parsed.name,
       neckdashPassword: parsed["neckdash-password"],
       neckdashUser: parsed["neckdash-user"],
@@ -162,6 +168,30 @@ function normalizeProdPlatform(input) {
   }
 
   return platform;
+}
+
+function normalizeBaseUrl(input) {
+  const value = String(input || "").trim().replace(/\/+$/g, "");
+  if (!value) return "";
+
+  try {
+    const url = new URL(value);
+    if (!["http:", "https:"].includes(url.protocol)) {
+      throw new Error("invalid protocol");
+    }
+    return url.toString().replace(/\/+$/g, "");
+  } catch {
+    throw new Error(`Invalid Komodo URL ${JSON.stringify(input)}. Use a full URL like https://komodo.example.com.`);
+  }
+}
+
+function listenerProvider(gitProvider) {
+  return String(gitProvider || "").toLowerCase().includes("github") ? "github" : "gitlab";
+}
+
+function komodoListenerUrl(baseUrl, provider, path) {
+  if (!baseUrl) return "";
+  return `${baseUrl}/listener/${provider}${path}`;
 }
 
 function secretToken() {
@@ -357,18 +387,31 @@ async function main() {
   const prodPlatformInput = await promptValue("Production image platform", options.prodPlatform || "linux/amd64", yes);
   const prodPlatform = normalizeProdPlatform(prodPlatformInput);
   const komodoServer = await promptValue("Komodo server", options.komodoServer || "server-prod", yes);
+  const gitProvider = options.gitProvider || "gitlab.com";
+  const gitAccount = options.gitAccount || "gitlab";
+  const webhookProvider = listenerProvider(gitProvider);
+  const komodoUrl = normalizeBaseUrl(await promptOptional("Komodo Core URL", options.komodoUrl || "", yes));
+  const defaultDeployWebhookUrl = komodoListenerUrl(
+    komodoUrl,
+    webhookProvider,
+    `/stack/${encodeURIComponent(appSlug)}/deploy`,
+  );
+  const defaultMigrateWebhookUrl = komodoListenerUrl(
+    komodoUrl,
+    webhookProvider,
+    `/action/${encodeURIComponent(`${appSlug}-migrate`)}/main`,
+  );
   const komodoDeployWebhookUrl = await promptOptional(
     "Komodo deploy webhook URL",
-    options.komodoDeployWebhookUrl || "",
+    options.komodoDeployWebhookUrl || defaultDeployWebhookUrl,
     yes,
   );
   const komodoMigrateWebhookUrl = await promptOptional(
     "Komodo migration webhook URL",
-    options.komodoMigrateWebhookUrl || "",
+    options.komodoMigrateWebhookUrl || defaultMigrateWebhookUrl,
     yes,
   );
-  const gitProvider = options.gitProvider || "gitlab.com";
-  const gitAccount = options.gitAccount || "gitlab";
+  const komodoWebhookSecret = options.komodoWebhookSecret || secretToken();
   const runDirectory = options.runDirectory || `/opt/stacks/${appSlug}`;
   const useEncorePlatform = options.encorePlatform !== false;
   const encoreAppId = options.encoreAppId || appSlug;
@@ -403,6 +446,9 @@ async function main() {
     GIT_PROVIDER: gitProvider,
     GIT_ACCOUNT: gitAccount,
     KOMODO_SERVER: komodoServer,
+    KOMODO_URL: komodoUrl,
+    KOMODO_WEBHOOK_PROVIDER: webhookProvider,
+    KOMODO_WEBHOOK_SECRET: komodoWebhookSecret,
     KOMODO_DEPLOY_WEBHOOK_URL: komodoDeployWebhookUrl,
     KOMODO_MIGRATE_WEBHOOK_URL: komodoMigrateWebhookUrl,
     RUN_DIRECTORY: runDirectory,
