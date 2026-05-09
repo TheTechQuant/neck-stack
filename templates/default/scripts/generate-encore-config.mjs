@@ -28,6 +28,9 @@ const defaultSignozCollectorImage = "signoz/signoz-otel-collector:v0.144.3";
 const defaultSignozClickHouseImage = "clickhouse/clickhouse-server:25.5.6";
 const defaultSignozZookeeperImage = "signoz/zookeeper:3.7.1";
 const defaultSignozJWTSecret = "__SIGNOZ_JWT_SECRET_DEFAULT__";
+const signozRootEmail = process.env.SIGNOZ_USER_ROOT_EMAIL || "__SIGNOZ_ROOT_EMAIL_DEFAULT__";
+const signozRootPassword = process.env.SIGNOZ_USER_ROOT_PASSWORD || "__SIGNOZ_ROOT_PASSWORD_DEFAULT__";
+const signozRootOrgName = process.env.SIGNOZ_USER_ROOT_ORG_NAME || "NECK";
 const prodPlatform = process.env.PROD_PLATFORM || "__PROD_PLATFORM__";
 const traceEndpoint = process.env.NECK_TRACE_ENDPOINT || "http://neckdash:8080/trace";
 const traceSampleRate = process.env.NECK_TRACE_SAMPLE_RATE || "1";
@@ -456,6 +459,10 @@ services:
       SIGNOZ_TELEMETRYSTORE_CLICKHOUSE_DSN: tcp://clickhouse:9000
       SIGNOZ_SQLSTORE_SQLITE_PATH: /var/lib/signoz/signoz.db
       SIGNOZ_TOKENIZER_JWT_SECRET: \${SIGNOZ_TOKENIZER_JWT_SECRET:-${defaultSignozJWTSecret}}
+      SIGNOZ_USER_ROOT_ENABLED: \${SIGNOZ_USER_ROOT_ENABLED:-true}
+      SIGNOZ_USER_ROOT_EMAIL: \${SIGNOZ_USER_ROOT_EMAIL:-${signozRootEmail}}
+      SIGNOZ_USER_ROOT_PASSWORD: \${SIGNOZ_USER_ROOT_PASSWORD:-${signozRootPassword}}
+      SIGNOZ_USER_ROOT_ORG_NAME: \${SIGNOZ_USER_ROOT_ORG_NAME:-${signozRootOrgName}}
     volumes:
       - signoz_sqlite:/var/lib/signoz
     expose:
@@ -649,6 +656,10 @@ function neckDashKomodoEnvLines() {
     "SIGNOZ_OTLP_LOGS_URL = http://signoz-otel-collector:4318/v1/logs",
     "SIGNOZ_OTLP_METRICS_URL = http://signoz-otel-collector:4318/v1/metrics",
     `SIGNOZ_TOKENIZER_JWT_SECRET = ${defaultSignozJWTSecret}`,
+    "SIGNOZ_USER_ROOT_ENABLED = true",
+    `SIGNOZ_USER_ROOT_EMAIL = ${signozRootEmail}`,
+    `SIGNOZ_USER_ROOT_PASSWORD = ${signozRootPassword}`,
+    `SIGNOZ_USER_ROOT_ORG_NAME = ${signozRootOrgName}`,
     "NECKDASH_KOMODO_URL = [[NECKDASH_KOMODO_URL]]",
     "NECKDASH_KOMODO_API_KEY = [[NECKDASH_KOMODO_API_KEY]]",
     "NECKDASH_KOMODO_API_SECRET = [[NECKDASH_KOMODO_API_SECRET]]",

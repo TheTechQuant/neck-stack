@@ -2,7 +2,7 @@
 	encode zstd gzip
 
 	@neckDashProtected {
-		path /__neck_dash /__neck_dash/* /__signoz /__signoz/*
+		path /__neck_dash /__neck_dash/*
 		not path /__neck_dash/api/trace
 	}
 	basic_auth @neckDashProtected {

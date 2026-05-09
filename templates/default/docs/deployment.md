@@ -169,10 +169,11 @@ Set the output as `NECK_DASH_PASSWORD_HASH`.
 
 ## NECK Dash
 
-The shared server ingress exposes `https://DOMAIN/__neck_dash` for NECK Dash and `https://DOMAIN/__signoz` for the real SigNoz UI. The app's internal Caddy protects both paths with HTTP Basic Auth. The only exception is `/__neck_dash/api/trace`, which must remain reachable by backend trace exporters and is still validated by Encore trace auth:
+The shared server ingress exposes `https://DOMAIN/__neck_dash` for NECK Dash and `https://DOMAIN/__signoz` for the real SigNoz UI. The app's internal Caddy protects NECK Dash with HTTP Basic Auth, while SigNoz uses its own root-user login. The only Basic Auth exception under NECK Dash is `/__neck_dash/api/trace`, which must remain reachable by backend trace exporters and is still validated by Encore trace auth:
 
 - `NECK_DASH_USER`, default `admin`.
 - `NECK_DASH_PASSWORD_HASH`, generated at scaffold time.
+- `SIGNOZ_USER_ROOT_EMAIL`, `SIGNOZ_USER_ROOT_PASSWORD`, and `SIGNOZ_USER_ROOT_ORG_NAME`, generated at scaffold time for the SigNoz login.
 
 The generated Encore infra config enables the official Prometheus remote-write metrics provider with `NECKDASH_METRICS_WRITE_URL`. That path carries Encore runtime metrics such as request counters and memory gauges, plus any custom metrics declared with `encore.dev/metrics`. NECK Dash decodes the Prometheus remote-write v1 payload, adds app metadata, and forwards OTLP metrics to the shared SigNoz collector.
 

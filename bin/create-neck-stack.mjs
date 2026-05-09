@@ -491,6 +491,8 @@ async function main() {
   const force = options.force === true;
   const neckDashPassword = options.neckdashPassword || secretToken();
   const neckDashPasswordHash = bcrypt.hashSync(neckDashPassword, 12);
+  const signozRootEmail = `admin@${domain || `${appSlug}.local`}`;
+  const signozRootPassword = secretToken();
 
   section("Scaffolding");
   step(`Target: ${target}`);
@@ -510,6 +512,8 @@ async function main() {
     NECK_DASH_USER: neckDashUser,
     TRACE_AUTH_KEY_DEFAULT: secretToken(),
     SIGNOZ_JWT_SECRET_DEFAULT: secretToken(),
+    SIGNOZ_ROOT_EMAIL_DEFAULT: signozRootEmail,
+    SIGNOZ_ROOT_PASSWORD_DEFAULT: signozRootPassword,
     DOMAIN: domain,
     REGISTRY: registry.replace(/\/+$/g, ""),
     PROD_PLATFORM: prodPlatform,
@@ -573,7 +577,7 @@ async function main() {
   if (!shouldInstall) console.log(`  ${chalk.cyan("pnpm dlx zx scripts/install.mjs")}`);
   console.log(`  ${chalk.cyan("pnpm check")}`);
   console.log(`  ${chalk.cyan("pnpm dev")}`);
-  outro("Operator settings and local secrets were written to .env.");
+  outro("Operator settings, NECK Dash Basic Auth, and SigNoz root credentials were written to .env.");
 }
 
 main().catch((err) => {
