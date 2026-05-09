@@ -188,6 +188,7 @@ export interface TraceError {
 
 export interface SpanBuilder {
   traceID: string;
+  encoreTraceID: string;
   spanID: string;
   parentSpanID: string;
   name: string;

@@ -1,12 +1,36 @@
 import crypto from "node:crypto";
 import type { OTLPAttribute, SpanBuilder, TraceError, TraceID } from "./traceTypes";
 
+const encoreTraceAlphabet = "0123456789abcdefghijklmnopqrstuv";
+
 export function hexTraceID(id: TraceID | undefined) {
   if (!id) return "";
+  return traceIDBytes(id).toString("hex");
+}
+
+export function encoreTraceID(id: TraceID | undefined) {
+  if (!id) return "";
+  const bytes = traceIDBytes(id);
+  let out = "";
+  let value = 0;
+  let bits = 0;
+  for (const byte of bytes) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      out += encoreTraceAlphabet[(value >> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) out += encoreTraceAlphabet[(value << (5 - bits)) & 31];
+  return out;
+}
+
+function traceIDBytes(id: TraceID) {
   const buffer = Buffer.alloc(16);
   buffer.writeBigUInt64LE(id.low, 0);
   buffer.writeBigUInt64LE(id.high, 8);
-  return buffer.toString("hex");
+  return buffer;
 }
 
 export function hexSpanID(id: bigint | undefined) {

@@ -1,6 +1,6 @@
 import { signozOTLPLogsURL, stringValue } from "./config";
 import type { OTLPAttribute, TraceEvent, TraceRequestMeta, SpanBuilder, LogField } from "./traceTypes";
-import { boolAttr, doubleAttr, errorMessage, hexSpanID, hexTraceID, intAttr, stringAttr, unixNano } from "./traceUtil";
+import { boolAttr, doubleAttr, encoreTraceID, errorMessage, hexSpanID, hexTraceID, intAttr, stringAttr, unixNano } from "./traceUtil";
 
 type StructuredLogEntry = Record<string, unknown>;
 
@@ -18,6 +18,7 @@ export function extractLogEntries(meta: TraceRequestMeta, events: TraceEvent[], 
       message: message.msg,
       level: logLevelName(message.level),
       trace_id: hexTraceID(ev.traceID),
+      "encore.trace_id": encoreTraceID(ev.traceID),
       span_id: spanID,
       service: builder?.service || "unknown",
       endpoint: builder?.endpoint || "",

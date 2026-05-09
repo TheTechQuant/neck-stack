@@ -7,6 +7,7 @@ import type { OTLPAttribute, OTLPEvent, OTLPRequest, SpanBuilder, SpanEvent, Tra
 import {
   boolAttr,
   doubleAttr,
+  encoreTraceID,
   errorMessage,
   firstSQLVerb,
   hexSpanID,
@@ -95,6 +96,7 @@ function convertToOTLP(meta: TraceRequestMeta, events: TraceEvent[]) {
     if (!builder) {
       builder = {
         traceID: hexTraceID(ev.traceID),
+        encoreTraceID: encoreTraceID(ev.traceID),
         spanID,
         parentSpanID: "",
         name: "",
@@ -128,6 +130,7 @@ function convertToOTLP(meta: TraceRequestMeta, events: TraceEvent[]) {
     if (span.end.getTime() <= span.start.getTime()) span.end = new Date(span.start.getTime() + 1);
     span.attributes.push(
       stringAttr("encore.app_id", meta.appID),
+      stringAttr("encore.trace_id", span.encoreTraceID),
       stringAttr("encore.env_id", meta.envID),
       stringAttr("encore.deploy_id", meta.deployID),
       stringAttr("encore.app_commit", meta.appCommit),
@@ -140,6 +143,7 @@ function convertToOTLP(meta: TraceRequestMeta, events: TraceEvent[]) {
       attributes: [
         stringAttr("service.name", span.service || "unknown"),
         stringAttr("encore.app_id", meta.appID),
+        stringAttr("encore.trace_id", span.encoreTraceID),
         stringAttr("encore.env_id", meta.envID),
       ],
     },
@@ -259,6 +263,7 @@ function buildSyntheticSpans(events: TraceEvent[], parents: Map<string, SpanBuil
 function syntheticStart(ev: TraceEvent, parent: SpanBuilder | undefined, parentID: string, spanEvent: SpanEvent, index: number) {
   const base = (name: string, key: string, kind: number): SpanBuilder => ({
     traceID: parent?.traceID || hexTraceID(ev.traceID),
+    encoreTraceID: parent?.encoreTraceID || encoreTraceID(ev.traceID),
     spanID: syntheticSpanID(parentID, index),
     parentSpanID: parentID,
     name,
