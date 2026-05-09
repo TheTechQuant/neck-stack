@@ -74,7 +74,7 @@ const {
   tabs,
   traceHours,
   traces,
-} = await useDashboardState();
+} = useDashboardState();
 </script>
 
 <template>

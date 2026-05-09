@@ -191,7 +191,7 @@ type ConfigResponse = {
   runtimeNote: string;
 };
 
-export async function useDashboardState() {
+export function useDashboardState() {
   const tabs = ["Insights", "Traces", "Logs", "Metrics", "Flow", "Catalog", "Settings"] as const;
   const insightRanges = ["10m", "1h", "8h", "24h", "3d", "7d"] as const;
   const allAppsID = "__all__";
@@ -217,7 +217,7 @@ export async function useDashboardState() {
   const configSaving = ref(false);
   const configMessage = ref("");
   const configError = ref("");
-  const { data: appsData, refresh: refreshApps } = await useAsyncData(
+  const { data: appsData, refresh: refreshApps } = useAsyncData(
     "neckdash-apps",
     () => client.dash.listApps(),
   );
@@ -239,13 +239,13 @@ export async function useDashboardState() {
     }
   });
 
-  const { data: insightsData, refresh: refreshInsights } = await useAsyncData(
+  const { data: insightsData, refresh: refreshInsights } = useAsyncData(
     "neckdash-insights",
     () => client.dash.insights({ range: insightRange.value, app: appQuery.value }),
     { watch: [insightRange, selectedAppID] },
   );
 
-  const { data: traceList, refresh: refreshTraces } = await useAsyncData(
+  const { data: traceList, refresh: refreshTraces } = useAsyncData(
     "neckdash-traces",
     () => client.dash.listTraces({
       limit: 50,
@@ -257,7 +257,7 @@ export async function useDashboardState() {
     { watch: [selectedAppID, service, search, traceHours] },
   );
 
-  const { data: traceServicesData, refresh: refreshTraceServices } = await useAsyncData(
+  const { data: traceServicesData, refresh: refreshTraceServices } = useAsyncData(
     "neckdash-trace-services",
     () => client.dash.listTraceServices({ app: appQuery.value }),
     { watch: [selectedAppID] },
@@ -273,7 +273,7 @@ export async function useDashboardState() {
     }
   });
 
-  const { data: traceDetail, refresh: refreshTraceDetail } = await useAsyncData(
+  const { data: traceDetail, refresh: refreshTraceDetail } = useAsyncData(
     "neckdash-trace-detail",
     () => selectedTrace.value
       ? client.dash.getTrace(selectedTrace.value.traceId)
@@ -281,36 +281,36 @@ export async function useDashboardState() {
     { watch: [selectedTraceID] },
   );
 
-  const { data: metricsData, refresh: refreshMetrics } = await useAsyncData(
+  const { data: metricsData, refresh: refreshMetrics } = useAsyncData(
     "neckdash-metrics",
     () => client.dash.metricsSummaryEndpoint({ hours: 24, app: appQuery.value }),
     { watch: [selectedAppID] },
   );
 
-  const { data: customMetricsData, refresh: refreshCustomMetrics } = await useAsyncData(
+  const { data: customMetricsData, refresh: refreshCustomMetrics } = useAsyncData(
     "neckdash-custom-metrics",
     () => client.dash.customMetrics({ hours: 24, app: appQuery.value }),
     { watch: [selectedAppID] },
   );
 
-  const { data: flowData, refresh: refreshFlow } = await useAsyncData(
+  const { data: flowData, refresh: refreshFlow } = useAsyncData(
     "neckdash-flow",
     () => client.dash.flow({ app: detailAppQuery.value }),
     { watch: [selectedAppID] },
   );
 
-  const { data: catalogData, refresh: refreshCatalog } = await useAsyncData(
+  const { data: catalogData, refresh: refreshCatalog } = useAsyncData(
     "neckdash-catalog",
     () => client.dash.catalog({ app: detailAppQuery.value }),
     { watch: [selectedAppID] },
   );
 
-  const { data: samplingData, refresh: refreshSampling } = await useAsyncData(
+  const { data: samplingData, refresh: refreshSampling } = useAsyncData(
     "neckdash-sampling",
     () => client.dash.getSampling(),
   );
 
-  const { data: configData, refresh: refreshConfig } = await useAsyncData(
+  const { data: configData, refresh: refreshConfig } = useAsyncData(
     "neckdash-config",
     () => detailAppQuery.value
       ? client.dash.config({ app: detailAppQuery.value })
