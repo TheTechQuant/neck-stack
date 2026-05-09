@@ -70,7 +70,6 @@ NECK intentionally keeps deploy configuration compact:
 - `deploy/compose.yaml`: generated runtime stack.
 - `deploy/komodo/resources.toml`: generated Komodo import.
 - `deploy/neckdash/compose.yaml`: shared per-server NECK Dash plus SigNoz/ClickHouse observability stack.
-- `deploy/signoz/prom-bridge.yaml`: per-app OTel bridge for Encore Prometheus remote-write metrics.
 - `deploy/neckdash/resources.toml`: Komodo import for the shared server dashboard stack.
 - `deploy/encore/infra.prod.json`: generated Encore self-hosted infra config.
 - `deploy/encore/runtime.prod.pb`: generated Encore runtime config used by the production container, including NECK Dash trace export.
@@ -138,7 +137,7 @@ Services are provisioned only when used:
 - No `CronJob`: no cron runner actions.
 - `Bucket` resources are detected but not provisioned.
 
-NECK Dash does not run inside each app stack. The shared `neckdash` stack runs the published `neckdash` and `neckdash-ui` images plus SigNoz, the SigNoz OTel collector, and ClickHouse. App stacks connect to it through `neck-ingress`, route `/__neck_dash` to it, and run only a small `signoz-prom-bridge` sidecar to label Encore metrics before forwarding them to the shared collector.
+NECK Dash does not run inside each app stack. The shared `neckdash` stack runs the published `neckdash` and `neckdash-ui` images plus SigNoz, the SigNoz OTel collector, and ClickHouse. App stacks connect to it through `neck-ingress`, route `/__neck_dash` to it, and post Encore traces, structured logs, and Prometheus remote-write metrics to the shared `neckdash` service on the private network.
 
 Object storage should be external. Use S3, Cloudflare R2, GCS, or another managed provider and wire the Encore infra config accordingly.
 
@@ -157,8 +156,8 @@ Relevant variables:
 - Encore `secret(...)` declarations, exposed to the container by exact secret name and backed by app-prefixed Komodo variables such as `APPID_SECRET_NAME` so multiple apps can safely reuse common secret names on one server.
 - `NECK_DASH_PASSWORD_HASH`, for `https://DOMAIN/__neck_dash`.
 - The generated trace signing key, written into `deploy/encore/infra.prod.json` and `deploy/encore/runtime.prod.pb` at build time and mirrored in the shared `neckdash` stack's `NECKDASH_TRACE_AUTH_KEYS`. It is not required as a backend runtime environment variable.
-- `SIGNOZ_PROM_REMOTE_WRITE_URL`, used by Encore's Prometheus remote-write metrics exporter. The generated default points at the app-local OTel bridge.
-- `SIGNOZ_OTLP_TRACES_URL` and `SIGNOZ_OTLP_LOGS_URL`, set on the shared `neckdash` stack. NECK Dash forwards validated Encore trace streams and extracted structured logs to these private SigNoz collector endpoints.
+- `NECKDASH_METRICS_WRITE_URL`, used by Encore's Prometheus remote-write metrics exporter. The generated default points at the shared private NECK Dash metrics adapter.
+- `SIGNOZ_OTLP_TRACES_URL`, `SIGNOZ_OTLP_LOGS_URL`, and `SIGNOZ_OTLP_METRICS_URL`, set on the shared `neckdash` stack. NECK Dash forwards validated Encore trace streams, extracted structured logs, and converted Prometheus remote-write metrics to these private SigNoz collector endpoints.
 
 To generate a new Caddy-compatible NECK Dash hash:
 
@@ -175,7 +174,7 @@ The shared server ingress exposes `https://DOMAIN/__neck_dash`, then the app's i
 - `NECK_DASH_USER`, default `admin`.
 - `NECK_DASH_PASSWORD_HASH`, generated at scaffold time.
 
-The generated Encore infra config enables the official Prometheus remote-write metrics provider with `SIGNOZ_PROM_REMOTE_WRITE_URL`. That path carries Encore runtime metrics such as request counters and memory gauges, plus any custom metrics declared with `encore.dev/metrics`. The app-local `signoz-prom-bridge` adds `encore.app_id` and `deployment.environment` labels and forwards OTLP metrics to the shared SigNoz collector.
+The generated Encore infra config enables the official Prometheus remote-write metrics provider with `NECKDASH_METRICS_WRITE_URL`. That path carries Encore runtime metrics such as request counters and memory gauges, plus any custom metrics declared with `encore.dev/metrics`. NECK Dash decodes the Prometheus remote-write v1 payload, adds app metadata, and forwards OTLP metrics to the shared SigNoz collector.
 
 NECK Dash also ships a trace ingestion adapter that validates Encore trace signatures, converts Encore trace streams to OpenTelemetry JSON, and forwards them to SigNoz. Production backends post to `http://neckdash:8080/trace` on the private `neck-ingress` network. The public `/__neck_dash/api/trace` route remains available for single-domain ingestion; app Caddy copies `X-Encore-Auth` into `X-Neckdash-Trace-Auth` and strips the reserved header before proxying to NECK Dash. Structured `encore.dev/log` events in those trace streams are emitted once as OTLP logs with `encore.app_id`, `trace_id`, and `span_id` preserved for correlation in SigNoz.
 

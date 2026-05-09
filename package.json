@@ -59,7 +59,8 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "@parcel/watcher",
-      "esbuild"
+      "esbuild",
+      "protobufjs"
     ]
   }
 }

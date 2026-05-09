@@ -1,38 +1,3 @@
-export function renderSignozPromBridgeConfig() {
-  return `receivers:
-  prometheusremotewrite:
-    endpoint: 0.0.0.0:19291
-    path: /api/v1/write
-
-processors:
-  resource/neck:
-    attributes:
-      - key: encore.app_id
-        value: \${env:APP_ID}
-        action: upsert
-      - key: deployment.environment
-        value: \${env:APP_ENV}
-        action: upsert
-  batch:
-    timeout: 5s
-    send_batch_size: 10000
-
-exporters:
-  otlphttp/signoz:
-    endpoint: \${env:SIGNOZ_OTLP_HTTP_ENDPOINT}
-
-service:
-  telemetry:
-    logs:
-      level: warn
-  pipelines:
-    metrics:
-      receivers: [prometheusremotewrite]
-      processors: [resource/neck, batch]
-      exporters: [otlphttp/signoz]
-`;
-}
-
 export function renderSignozCollectorConfig() {
   return `connectors:
   signozmeter:
@@ -144,11 +109,6 @@ service:
 `;
 }
 
-export function renderSignozCollectorOpampConfig() {
-  return `server_endpoint: ws://signoz:4320/v1/opamp
-`;
-}
-
 export function renderClickHouseClusterXML() {
   return `<?xml version="1.0"?>
 <clickhouse>
@@ -158,6 +118,10 @@ export function renderClickHouseClusterXML() {
       <port>2181</port>
     </node>
   </zookeeper>
+  <macros>
+    <shard>01</shard>
+    <replica>01</replica>
+  </macros>
   <remote_servers>
     <cluster>
       <shard>

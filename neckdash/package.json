@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "encore.dev": "1.57.1"
+    "encore.dev": "1.57.1",
+    "protobufjs": "^8.0.3",
+    "snappyjs": "^0.7.0"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

@@ -141,11 +141,9 @@ jobs:
             deploy/encore/runtime.prod.pb
             deploy/encore/meta.json
             deploy/compose.yaml
-            deploy/signoz/prom-bridge.yaml
             deploy/komodo/resources.toml
             deploy/neckdash/compose.yaml
             deploy/neckdash/signoz-otel-collector.yaml
-            deploy/neckdash/signoz-otel-collector-opamp.yaml
             deploy/neckdash/clickhouse-cluster.xml
             deploy/neckdash/clickhouse-custom-function.xml
             deploy/neckdash/resources.toml

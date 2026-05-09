@@ -47,13 +47,13 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - export K_POD="${K_POD:-$(hostname)}"; unset ENCORE_INFRA_CONFIG_PATH; exec node --enable-source-maps /workspace/.encore/build/combined/combined/main.mjs
+      - for entry in /workspace/.encore/build/combined/combined/main.mjs /workspace/backend/.encore/build/combined/combined/main.mjs /workspace/.neck-tmp/neck-backend-*/backend/.encore/build/combined/combined/main.mjs; do if [ -f "$$entry" ]; then export K_POD="${K_POD:-$(hostname)}"; unset ENCORE_INFRA_CONFIG_PATH; exec node --enable-source-maps "$$entry"; fi; done; echo "Encore backend entrypoint not found" >&2; exit 1
     environment:
       PORT: 8080
       ENCORE_RUNTIME_CONFIG_PATH: /encore/runtime.prod.pb
       K_SERVICE: ${K_SERVICE:-__APP_ID__-backend}
       K_REVISION: ${K_REVISION:-__APP_ID__-production}
-      SIGNOZ_PROM_REMOTE_WRITE_URL: ${SIGNOZ_PROM_REMOTE_WRITE_URL:-http://signoz-prom-bridge:19291/api/v1/write}
+      NECKDASH_METRICS_WRITE_URL: ${NECKDASH_METRICS_WRITE_URL:-http://neckdash:8080/metrics/write?app=__APP_ID__}
     expose:
       - "8080"
     volumes:
@@ -66,23 +66,6 @@ services:
       interval: 15s
       timeout: 5s
       retries: 8
-
-  signoz-prom-bridge:
-    image: ${OTEL_COLLECTOR_IMAGE:-otel/opentelemetry-collector-contrib:0.140.1}
-    platform: ${PROD_PLATFORM:-__PROD_PLATFORM__}
-    restart: unless-stopped
-    command: ["--config=/etc/otel/config.yaml"]
-    environment:
-      APP_ID: __APP_ID__
-      APP_ENV: production
-      SIGNOZ_OTLP_HTTP_ENDPOINT: ${SIGNOZ_OTLP_HTTP_ENDPOINT:-http://signoz-otel-collector:4318}
-    expose:
-      - "19291"
-    volumes:
-      - ./signoz/prom-bridge.yaml:/etc/otel/config.yaml:ro
-    networks:
-      - default
-      - neck-ingress
 
 networks:
   neck-ingress:

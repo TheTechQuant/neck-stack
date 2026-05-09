@@ -13,6 +13,7 @@ services:
       NECKDASH_APPS_ROOT: /apps
       SIGNOZ_OTLP_TRACES_URL: ${SIGNOZ_OTLP_TRACES_URL:-http://signoz-otel-collector:4318/v1/traces}
       SIGNOZ_OTLP_LOGS_URL: ${SIGNOZ_OTLP_LOGS_URL:-http://signoz-otel-collector:4318/v1/logs}
+      SIGNOZ_OTLP_METRICS_URL: ${SIGNOZ_OTLP_METRICS_URL:-http://signoz-otel-collector:4318/v1/metrics}
       SIGNOZ_BASE_URL: ${SIGNOZ_BASE_URL:-/__neck_dash/signoz}
       NECKDASH_KOMODO_URL: ${NECKDASH_KOMODO_URL:-}
       NECKDASH_KOMODO_API_KEY: ${NECKDASH_KOMODO_API_KEY:-}
@@ -77,7 +78,7 @@ services:
     restart: unless-stopped
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - /signoz-otel-collector migrate sync check && /signoz-otel-collector --config=/etc/otel-collector-config.yaml --manager-config=/etc/otel-collector-opamp-config.yaml --copy-path=/var/tmp/collector-config.yaml
+      - /signoz-otel-collector migrate sync check && /signoz-otel-collector --config=/etc/otel-collector-config.yaml
     environment:
       OTEL_RESOURCE_ATTRIBUTES: host.name=neckdash,os.type=linux
       LOW_CARDINAL_EXCEPTION_GROUPING: "false"
@@ -86,8 +87,7 @@ services:
       SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_REPLICATION: "true"
       SIGNOZ_OTEL_COLLECTOR_TIMEOUT: 10m
     volumes:
-      - ./neckdash/signoz-otel-collector.yaml:/etc/otel-collector-config.yaml:ro
-      - ./neckdash/signoz-otel-collector-opamp.yaml:/etc/otel-collector-opamp-config.yaml:ro
+      - ./signoz-otel-collector.yaml:/etc/otel-collector-config.yaml:ro
     expose:
       - "4317"
       - "4318"
@@ -168,8 +168,8 @@ services:
     environment:
       CLICKHOUSE_SKIP_USER_SETUP: 1
     volumes:
-      - ./neckdash/clickhouse-cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
-      - ./neckdash/clickhouse-custom-function.xml:/etc/clickhouse-server/custom-function.xml:ro
+      - ./clickhouse-cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+      - ./clickhouse-custom-function.xml:/etc/clickhouse-server/custom-function.xml:ro
       - signoz_clickhouse_scripts:/var/lib/clickhouse/user_scripts
       - signoz_clickhouse:/var/lib/clickhouse
     expose:

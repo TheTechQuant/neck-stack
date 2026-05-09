@@ -245,6 +245,7 @@ export namespace dash {
             this.getSampling = this.getSampling.bind(this)
             this.health = this.health.bind(this)
             this.listApps = this.listApps.bind(this)
+            this.prometheusRemoteWrite = this.prometheusRemoteWrite.bind(this)
             this.trace = this.trace.bind(this)
             this.traceFromSingleDomain = this.traceFromSingleDomain.bind(this)
             this.updateConfigEndpoint = this.updateConfigEndpoint.bind(this)
@@ -317,6 +318,13 @@ export namespace dash {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/apps`)
             return await resp.json() as AppsResponse
+        }
+
+        /**
+         * PrometheusRemoteWrite receives internal Encore metrics and forwards them to SigNoz.
+         */
+        public async prometheusRemoteWrite(method: "POST", body?: RequestInit["body"], options?: CallParameters): Promise<globalThis.Response> {
+            return this.baseClient.callAPI(method, `/metrics/write`, body, options)
         }
 
         /**

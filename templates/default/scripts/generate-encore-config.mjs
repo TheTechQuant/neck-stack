@@ -7,8 +7,6 @@ import {
   renderClickHouseClusterXML,
   renderClickHouseCustomFunctionXML,
   renderSignozCollectorConfig,
-  renderSignozCollectorOpampConfig,
-  renderSignozPromBridgeConfig,
 } from "./lib/signoz-config.mjs";
 import { encodeRuntimeConfig } from "./lib/runtime-config.mjs";
 
@@ -29,7 +27,6 @@ const defaultSignozImage = "signoz/signoz:v0.122.0";
 const defaultSignozCollectorImage = "signoz/signoz-otel-collector:v0.144.3";
 const defaultSignozClickHouseImage = "clickhouse/clickhouse-server:25.5.6";
 const defaultSignozZookeeperImage = "signoz/zookeeper:3.7.1";
-const defaultOtelCollectorImage = "otel/opentelemetry-collector-contrib:0.140.1";
 const defaultSignozJWTSecret = "__SIGNOZ_JWT_SECRET_DEFAULT__";
 const prodPlatform = process.env.PROD_PLATFORM || "__PROD_PLATFORM__";
 const traceEndpoint = process.env.NECK_TRACE_ENDPOINT || "http://neckdash:8080/trace";
@@ -124,7 +121,7 @@ function renderInfraConfig() {
     metrics: {
       type: "prometheus",
       collection_interval: 15,
-      remote_write_url: { $env: "SIGNOZ_PROM_REMOTE_WRITE_URL" },
+      remote_write_url: { $env: "NECKDASH_METRICS_WRITE_URL" },
     },
     used_metrics: resources.metrics.map((metric) => ({
       name: metric.name,
@@ -203,7 +200,7 @@ function backendEnvironment() {
     "      ENCORE_RUNTIME_CONFIG_PATH: /encore/runtime.prod.pb",
     `      K_SERVICE: \${K_SERVICE:-${appId}-backend}`,
     `      K_REVISION: \${K_REVISION:-${appId}-production}`,
-    `      SIGNOZ_PROM_REMOTE_WRITE_URL: \${SIGNOZ_PROM_REMOTE_WRITE_URL:-http://signoz-prom-bridge:19291/api/v1/write}`,
+    `      NECKDASH_METRICS_WRITE_URL: \${NECKDASH_METRICS_WRITE_URL:-http://neckdash:8080/metrics/write?app=${appId}}`,
   ];
 
   if (hasDatabases()) {
@@ -280,7 +277,7 @@ function renderCompose() {
     entrypoint:
       - /bin/sh
       - -c
-      - export K_POD="\${K_POD:-\$(hostname)}"; unset ENCORE_INFRA_CONFIG_PATH; exec node --enable-source-maps /workspace/.encore/build/combined/combined/main.mjs
+      - for entry in /workspace/.encore/build/combined/combined/main.mjs /workspace/backend/.encore/build/combined/combined/main.mjs /workspace/.neck-tmp/neck-backend-*/backend/.encore/build/combined/combined/main.mjs; do if [ -f "$$entry" ]; then export K_POD="\${K_POD:-\$(hostname)}"; unset ENCORE_INFRA_CONFIG_PATH; exec node --enable-source-maps "$$entry"; fi; done; echo "Encore backend entrypoint not found" >&2; exit 1
     environment:
 ${backendEnvironment()}
     expose:
@@ -295,22 +292,6 @@ ${backendEnvironment()}
       interval: 15s
       timeout: 5s
       retries: 8`,
-`  signoz-prom-bridge:
-    image: \${OTEL_COLLECTOR_IMAGE:-${defaultOtelCollectorImage}}
-    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
-    restart: unless-stopped
-    command: ["--config=/etc/otel/config.yaml"]
-    environment:
-      APP_ID: ${appId}
-      APP_ENV: production
-      SIGNOZ_OTLP_HTTP_ENDPOINT: \${SIGNOZ_OTLP_HTTP_ENDPOINT:-http://signoz-otel-collector:4318}
-    expose:
-      - "19291"
-    volumes:
-      - ./signoz/prom-bridge.yaml:/etc/otel/config.yaml:ro
-    networks:
-      - default
-      - neck-ingress`,
   ];
 
   if (hasPostgres()) {
@@ -431,6 +412,7 @@ services:
       NECKDASH_APPS_ROOT: /apps
       SIGNOZ_OTLP_TRACES_URL: \${SIGNOZ_OTLP_TRACES_URL:-http://signoz-otel-collector:4318/v1/traces}
       SIGNOZ_OTLP_LOGS_URL: \${SIGNOZ_OTLP_LOGS_URL:-http://signoz-otel-collector:4318/v1/logs}
+      SIGNOZ_OTLP_METRICS_URL: \${SIGNOZ_OTLP_METRICS_URL:-http://signoz-otel-collector:4318/v1/metrics}
       SIGNOZ_BASE_URL: \${SIGNOZ_BASE_URL:-/__neck_dash/signoz}
       NECKDASH_KOMODO_URL: \${NECKDASH_KOMODO_URL:-}
       NECKDASH_KOMODO_API_KEY: \${NECKDASH_KOMODO_API_KEY:-}
@@ -495,7 +477,7 @@ services:
     restart: unless-stopped
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - /signoz-otel-collector migrate sync check && /signoz-otel-collector --config=/etc/otel-collector-config.yaml --manager-config=/etc/otel-collector-opamp-config.yaml --copy-path=/var/tmp/collector-config.yaml
+      - /signoz-otel-collector migrate sync check && /signoz-otel-collector --config=/etc/otel-collector-config.yaml
     environment:
       OTEL_RESOURCE_ATTRIBUTES: host.name=neckdash,os.type=linux
       LOW_CARDINAL_EXCEPTION_GROUPING: "false"
@@ -504,8 +486,7 @@ services:
       SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_REPLICATION: "true"
       SIGNOZ_OTEL_COLLECTOR_TIMEOUT: 10m
     volumes:
-      - ./neckdash/signoz-otel-collector.yaml:/etc/otel-collector-config.yaml:ro
-      - ./neckdash/signoz-otel-collector-opamp.yaml:/etc/otel-collector-opamp-config.yaml:ro
+      - ./signoz-otel-collector.yaml:/etc/otel-collector-config.yaml:ro
     expose:
       - "4317"
       - "4318"
@@ -586,8 +567,8 @@ services:
     environment:
       CLICKHOUSE_SKIP_USER_SETUP: 1
     volumes:
-      - ./neckdash/clickhouse-cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
-      - ./neckdash/clickhouse-custom-function.xml:/etc/clickhouse-server/custom-function.xml:ro
+      - ./clickhouse-cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+      - ./clickhouse-custom-function.xml:/etc/clickhouse-server/custom-function.xml:ro
       - signoz_clickhouse_scripts:/var/lib/clickhouse/user_scripts
       - signoz_clickhouse:/var/lib/clickhouse
     expose:
@@ -628,7 +609,7 @@ function komodoEnvLines() {
     `NECK_DASH_PASSWORD_HASH = ${neckDashPasswordHash}`,
     "NUXT_PUBLIC_API_BASE_URL = /api",
     "NUXT_API_INTERNAL_BASE_URL = http://backend:8080",
-    "SIGNOZ_PROM_REMOTE_WRITE_URL = http://signoz-prom-bridge:19291/api/v1/write",
+    `NECKDASH_METRICS_WRITE_URL = http://neckdash:8080/metrics/write?app=${appId}`,
     `PROD_PLATFORM = ${prodPlatform}`,
     "",
   ];
@@ -645,7 +626,6 @@ function komodoEnvLines() {
 
   lines.push(`BACKEND_IMAGE = ${registry}/backend:prod`);
   lines.push(`FRONTEND_IMAGE = ${registry}/frontend:prod`);
-  lines.push(`OTEL_COLLECTOR_IMAGE = ${defaultOtelCollectorImage}`);
   if (hasPostgres()) {
     lines.push(`MIGRATIONS_IMAGE = ${registry}/migrations:prod`);
   }
@@ -667,6 +647,7 @@ function neckDashKomodoEnvLines() {
     `SIGNOZ_EXTERNAL_URL = https://${domain}/__neck_dash/signoz`,
     "SIGNOZ_OTLP_TRACES_URL = http://signoz-otel-collector:4318/v1/traces",
     "SIGNOZ_OTLP_LOGS_URL = http://signoz-otel-collector:4318/v1/logs",
+    "SIGNOZ_OTLP_METRICS_URL = http://signoz-otel-collector:4318/v1/metrics",
     `SIGNOZ_TOKENIZER_JWT_SECRET = ${defaultSignozJWTSecret}`,
     "NECKDASH_KOMODO_URL = [[NECKDASH_KOMODO_URL]]",
     "NECKDASH_KOMODO_API_KEY = [[NECKDASH_KOMODO_API_KEY]]",
@@ -852,11 +833,9 @@ await writeGeneratedFile(path.resolve("deploy/encore/runtime.prod.pb"), encodeRu
 }));
 await writeGeneratedFile(path.resolve("deploy/encore/meta.json"), renderMetaJSON());
 await writeGeneratedFile(path.resolve("deploy/compose.yaml"), renderCompose());
-await writeGeneratedFile(path.resolve("deploy/signoz/prom-bridge.yaml"), renderSignozPromBridgeConfig());
 await writeGeneratedFile(path.resolve("deploy/komodo/resources.toml"), renderKomodoResources());
 await writeGeneratedFile(path.resolve("deploy/neckdash/compose.yaml"), renderNeckDashCompose());
 await writeGeneratedFile(path.resolve("deploy/neckdash/signoz-otel-collector.yaml"), renderSignozCollectorConfig());
-await writeGeneratedFile(path.resolve("deploy/neckdash/signoz-otel-collector-opamp.yaml"), renderSignozCollectorOpampConfig());
 await writeGeneratedFile(path.resolve("deploy/neckdash/clickhouse-cluster.xml"), renderClickHouseClusterXML());
 await writeGeneratedFile(path.resolve("deploy/neckdash/clickhouse-custom-function.xml"), renderClickHouseCustomFunctionXML());
 await writeGeneratedFile(path.resolve("deploy/neckdash/resources.toml"), renderNeckDashKomodoResources());

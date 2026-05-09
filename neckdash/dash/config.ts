@@ -10,6 +10,10 @@ export function signozOTLPLogsURL() {
   return env("SIGNOZ_OTLP_LOGS_URL", "http://signoz-otel-collector:4318/v1/logs");
 }
 
+export function signozOTLPMetricsURL() {
+  return env("SIGNOZ_OTLP_METRICS_URL", "http://signoz-otel-collector:4318/v1/metrics");
+}
+
 export function valueOr(value: string | undefined | null, fallback: string) {
   return value && value.length > 0 ? value : fallback;
 }

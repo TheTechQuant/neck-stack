@@ -3,6 +3,7 @@ import { buildCatalog } from "./catalog";
 import { discoverApps, selectedCatalog } from "./apps";
 import { readConfig, updateConfig } from "./configApi";
 import { buildFlow } from "./flow";
+import { handlePrometheusRemoteWrite } from "./metrics";
 import { handleTrace } from "./trace";
 import type {
   AppParams,
@@ -86,4 +87,10 @@ export const trace = api.raw(
 export const traceFromSingleDomain = api.raw(
   { expose: true, method: "POST", path: "/__neck_dash/api/trace" },
   handleTrace,
+);
+
+// PrometheusRemoteWrite receives internal Encore metrics and forwards them to SigNoz.
+export const prometheusRemoteWrite = api.raw(
+  { expose: true, method: "POST", path: "/metrics/write" },
+  handlePrometheusRemoteWrite,
 );
