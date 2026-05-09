@@ -14,7 +14,7 @@ The result is an opinionated setup in which things that you can get wrong are mi
 
 ## What It Generates
 
-- `frontend`: Nuxt app with `@nuxt/scripts`, Encore Toolbar support, and generated Encore client usage.
+- `frontend`: Nuxt app with `@nuxt/scripts`, dev-only Encore Toolbar support, and generated Encore client usage.
 - `backend`: Encore.ts app with Worker Pooling, CORS, structured logging, tests, OpenAPI docs, and a starter Streaming API.
 - `deploy`: generated app Compose, shared NECK Dash Compose, Caddy config, Encore self-hosted infra config, migrations image, and Komodo resources.
 - `scripts`: zx scripts for dev, checks, API generation, deployment, infra generation, and migrations.

@@ -1,6 +1,7 @@
-const encoreToolbarEnabled = process.env.NUXT_PUBLIC_ENCORE_TOOLBAR !== "false";
+const encoreToolbarEnabled = process.env.NODE_ENV !== "production"
+  && process.env.NUXT_PUBLIC_ENCORE_TOOLBAR !== "false";
 const encoreToolbarEnvName = process.env.NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME
-  || (process.env.NODE_ENV === "production" ? "production" : "local");
+  || "local";
 const encoreToolbarSrc = process.env.NUXT_PUBLIC_ENCORE_TOOLBAR_SRC
   || `https://encore.dev/encore-toolbar.js?appId=__APP_ID__&envName=${encodeURIComponent(encoreToolbarEnvName)}`;
 

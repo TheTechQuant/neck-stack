@@ -244,8 +244,6 @@ function renderCompose() {
     environment:
       NUXT_PUBLIC_API_BASE_URL: ${composeEnv("NUXT_PUBLIC_API_BASE_URL", "/api")}
       NUXT_API_INTERNAL_BASE_URL: \${NUXT_API_INTERNAL_BASE_URL:-http://backend:8080}
-      NUXT_PUBLIC_ENCORE_TOOLBAR: \${NUXT_PUBLIC_ENCORE_TOOLBAR:-true}
-      NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME: \${NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME:-production}
       PORT: 3000
       HOST: 0.0.0.0
     expose:
@@ -499,8 +497,6 @@ function komodoEnvLines() {
     "NECK_INGRESS_NETWORK = neck-ingress",
     `NECK_DASH_USER = ${neckDashUser}`,
     `NECK_DASH_PASSWORD_HASH = ${neckDashPasswordHash}`,
-    "NUXT_PUBLIC_ENCORE_TOOLBAR = true",
-    "NUXT_PUBLIC_ENCORE_TOOLBAR_ENV_NAME = production",
     "NUXT_PUBLIC_API_BASE_URL = /api",
     "NUXT_API_INTERNAL_BASE_URL = http://backend:8080",
     `VICTORIA_METRICS_REMOTE_WRITE_URL = http://victoria-metrics:8428/api/v1/write?extra_label=app_id=${appId}`,
