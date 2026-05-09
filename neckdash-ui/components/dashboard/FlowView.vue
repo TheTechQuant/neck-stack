@@ -56,7 +56,7 @@ onMounted(load);
 
 <template>
   <section class="view-stack">
-    <StatePanel
+    <DashboardStatePanel
       :loading="state === 'loading'"
       :error="error"
       title="Flow unavailable"
@@ -115,6 +115,6 @@ onMounted(load);
           <div v-if="edges.length === 0" class="empty-panel">No service dependencies found in metadata.</div>
         </section>
       </div>
-    </StatePanel>
+    </DashboardStatePanel>
   </section>
 </template>

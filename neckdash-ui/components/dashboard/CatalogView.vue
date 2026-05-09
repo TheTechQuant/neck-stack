@@ -47,7 +47,7 @@ onMounted(load);
 
 <template>
   <section class="view-stack">
-    <StatePanel
+    <DashboardStatePanel
       :loading="state === 'loading'"
       :error="error"
       title="Catalog unavailable"
@@ -119,6 +119,6 @@ onMounted(load);
           </div>
         </article>
       </div>
-    </StatePanel>
+    </DashboardStatePanel>
   </section>
 </template>

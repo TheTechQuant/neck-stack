@@ -124,24 +124,24 @@ onMounted(loadApps);
         </div>
       </header>
 
-      <ObservabilityView
+      <DashboardObservabilityView
         v-if="current.view === 'overview'"
         :app-id="current.appId"
         :apps="apps"
         :signoz-base-url="signozBaseUrl"
         :refresh-nonce="refreshNonce"
       />
-      <CatalogView
+      <DashboardCatalogView
         v-else-if="current.view === 'catalog'"
         :app-id="current.appId"
         :refresh-nonce="refreshNonce"
       />
-      <FlowView
+      <DashboardFlowView
         v-else-if="current.view === 'flow'"
         :app-id="current.appId"
         :refresh-nonce="refreshNonce"
       />
-      <SettingsView
+      <DashboardSettingsView
         v-else
         :app-id="current.appId"
         :refresh-nonce="refreshNonce"

@@ -80,7 +80,7 @@ onMounted(load);
 
 <template>
   <section class="view-stack">
-    <StatePanel
+    <DashboardStatePanel
       :loading="state === 'loading'"
       :error="error"
       title="Settings unavailable"
@@ -152,6 +152,6 @@ onMounted(load);
         </div>
         <p v-if="saveMessage" class="notice">{{ saveMessage }}</p>
       </section>
-    </StatePanel>
+    </DashboardStatePanel>
   </section>
 </template>

@@ -101,7 +101,7 @@ onMounted(load);
       </div>
     </div>
 
-    <StatePanel :loading="state === 'loading'" :error="error" title="Metadata unavailable">
+    <DashboardStatePanel :loading="state === 'loading'" :error="error" title="Metadata unavailable">
       <div class="metric-grid">
         <article class="metric-tile">
           <Boxes :size="18" />
@@ -128,7 +128,7 @@ onMounted(load);
           <small>typed Encore streams</small>
         </article>
       </div>
-    </StatePanel>
+    </DashboardStatePanel>
 
     <div class="link-grid">
       <a v-for="link in signozLinks" :key="link.title" class="link-card" :href="link.href" target="_blank" rel="noreferrer">
