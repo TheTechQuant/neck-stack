@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { SpanSummary, TraceEvent, TraceSummary } from "~/composables/useDashboardState";
+import type { SpanSummary, TraceEvent, TraceSummary } from "~/types/dashboard";
 
 const props = defineProps<{
   traces: TraceSummary[];

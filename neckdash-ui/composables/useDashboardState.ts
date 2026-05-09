@@ -1,52 +1,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
 import { refreshNuxtData, useAsyncData } from "#app";
 import { useDashClient } from "./useDashApi";
-
-export type TraceSummary = {
-  traceId: string;
-  service: string;
-  endpoint: string;
-  startedAt: string;
-  durationMs: number;
-  spanCount: number;
-  error: boolean;
-  statusCode: number;
-  environment: string;
-};
-
-export type SpanSummary = {
-  spanId: string;
-  parentSpanId: string;
-  spanType: string;
-  kind: string;
-  name: string;
-  serviceName: string;
-  endpointName: string;
-  topicName: string;
-  subscriptionName: string;
-  messageId: string;
-  startedAt: string;
-  durationMs: number;
-  statusCode: number;
-  isError: boolean;
-  attributes: Record<string, string>;
-  logs: SpanLog[];
-};
-
-export type TraceEvent = {
-  spanId: string;
-  eventId: string;
-  eventType: string;
-  eventTime: string;
-  eventJson: string;
-};
-
-export type SpanLog = {
-  timestamp: string;
-  level: string;
-  message: string;
-  fields: Record<string, string>;
-};
+import { useDashboardRouteSync } from "./useDashboardRouteSync";
+import type { SpanLog, SpanSummary, TraceEvent, TraceSummary } from "~/types/dashboard";
 
 type ServiceMetric = {
   service: string;
@@ -224,6 +180,20 @@ export function useDashboardState() {
   const configSaving = ref(false);
   const configMessage = ref("");
   const configError = ref("");
+  const routeSync = useDashboardRouteSync({
+    activeTab,
+    allAppsID,
+    insightRange,
+    insightRanges,
+    search,
+    selectedAppID,
+    selectedEvent,
+    selectedSpanID,
+    selectedTraceID,
+    service,
+    tabs,
+    traceHours,
+  });
   const liveDataOptions = (watchSources: any[] = []) => ({
     watch: watchSources,
     dedupe: "cancel" as const,
@@ -278,18 +248,11 @@ export function useDashboardState() {
 
   const traces = computed(() => traceList.value?.traces ?? []);
   const services = computed(() => traceServicesData.value?.services ?? []);
-  const selectedTrace = computed(() => traces.value.find((trace) => trace.traceId === selectedTraceID.value) ?? traces.value[0]);
-
-  watchEffect(() => {
-    if (traces.value[0] && !traces.value.some((trace) => trace.traceId === selectedTraceID.value)) {
-      selectedTraceID.value = traces.value[0].traceId;
-    }
-  });
 
   const { data: traceDetail, refresh: refreshTraceDetail } = useAsyncData(
     "neckdash-trace-detail",
-    () => selectedTrace.value
-      ? client.dash.getTrace(selectedTrace.value.traceId)
+    () => selectedTraceID.value
+      ? client.dash.getTrace(selectedTraceID.value)
       : Promise.resolve(null),
     liveDataOptions([selectedTraceID]),
   );
@@ -366,6 +329,30 @@ export function useDashboardState() {
     const raw = safeParse(traceDetail.value?.rawJson) as { data?: Array<{ spans?: Array<Record<string, any>>; processes?: Record<string, { serviceName?: string }> }> } | null;
     return raw?.data?.[0];
   });
+  const selectedTraceFromDetail = computed<TraceSummary | undefined>(() => {
+    const trace = jaegerTrace.value;
+    if (!trace || !selectedTraceID.value) return undefined;
+    const traceSpans = Array.isArray(trace.spans) ? trace.spans : [];
+    const root = traceSpans.find((span) => !Array.isArray(span.references) || span.references.length === 0) ?? traceSpans[0];
+    const attributes = root ? jaegerTags(root) : {};
+    const statusCode = spanStatusCode(attributes);
+    return {
+      traceId: selectedTraceID.value,
+      service: root ? String(trace.processes?.[String(root.processID || "")]?.serviceName || root.processID || "") : "",
+      endpoint: String(root?.operationName || ""),
+      startedAt: root ? new Date(Number(root.startTime || 0) / 1000).toISOString() : "",
+      durationMs: root ? Number(root.duration || 0) / 1000 : 0,
+      spanCount: traceSpans.length,
+      error: attributes.error === "true" || attributes["otel.status_code"] === "ERROR" || statusCode >= 500,
+      statusCode,
+      environment: attributes["encore.env_id"] || "",
+    };
+  });
+  const selectedTrace = computed(() => (
+    traces.value.find((trace) => trace.traceId === selectedTraceID.value)
+    ?? selectedTraceFromDetail.value
+    ?? undefined
+  ));
   const spans = computed<SpanSummary[]>(() => (jaegerTrace.value?.spans ?? []).map((span) => {
     const attributes = jaegerTags(span);
     const serviceName = String(jaegerTrace.value?.processes?.[String(span.processID || "")]?.serviceName || span.processID || "");
@@ -426,6 +413,7 @@ export function useDashboardState() {
   });
 
   watch(selectedAppID, () => {
+    if (routeSync.isSyncingFromRoute()) return;
     service.value = "";
     selectedTraceID.value = "";
     selectedSpanID.value = "";
@@ -435,16 +423,17 @@ export function useDashboardState() {
   });
 
   watch(selectedTraceID, () => {
-    selectedSpanID.value = "";
     selectedEvent.value = null;
+    if (routeSync.isSyncingFromRoute()) return;
+    selectedSpanID.value = "";
   });
 
   watchEffect(() => {
     if (spans.value.length === 0) {
-      selectedSpanID.value = "";
+      if (!selectedTraceID.value) selectedSpanID.value = "";
       return;
     }
-    if (!spans.value.some((span) => span.spanId === selectedSpanID.value)) {
+    if (!selectedSpanID.value || !spans.value.some((span) => span.spanId === selectedSpanID.value)) {
       const first = spans.value[0];
       if (first) selectedSpanID.value = first.spanId;
     }
@@ -879,6 +868,7 @@ export function useDashboardState() {
   if (import.meta.client) {
     onMounted(() => {
       restoreDashboardState();
+      routeSync.applyRouteToState();
       startLiveStream();
     });
     watch([
@@ -888,6 +878,8 @@ export function useDashboardState() {
       traceHours,
       search,
       service,
+      selectedTraceID,
+      selectedSpanID,
       liveMode,
     ], persistDashboardState);
     watch(liveMode, startLiveStream);
