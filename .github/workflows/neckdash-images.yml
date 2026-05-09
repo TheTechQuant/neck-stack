@@ -21,10 +21,6 @@ jobs:
         with:
           node-version: "24"
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.25.x"
-
       - name: Install Encore
         run: |
           curl -fsSL https://encore.dev/install.sh -o /tmp/install-encore.sh
@@ -59,6 +55,9 @@ jobs:
 
       - name: Test NECK Dash
         run: pnpm test:neckdash
+
+      - name: Generate NECK Dash client
+        run: pnpm gen:neckdash-client
 
       - name: Typecheck NECK Dash UI
         run: pnpm --filter neckdash-ui typecheck

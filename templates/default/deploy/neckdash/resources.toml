@@ -31,6 +31,9 @@ VICTORIA_METRICS_RETENTION = 90d
 VICTORIA_LOGS_INSERT_URL = http://victoria-logs:9428/insert/jsonline?_stream_fields=app_id,env_id,service,level&_time_field=timestamp&_msg_field=message
 VICTORIA_LOGS_QUERY_URL = http://victoria-logs:9428/select/logsql/query
 VICTORIA_LOGS_RETENTION = 30d
+NECKDASH_KOMODO_URL = [[NECKDASH_KOMODO_URL]]
+NECKDASH_KOMODO_API_KEY = [[NECKDASH_KOMODO_API_KEY]]
+NECKDASH_KOMODO_API_SECRET = [[NECKDASH_KOMODO_API_SECRET]]
 PROD_PLATFORM = __PROD_PLATFORM__
 
 NECKDASH_IMAGE = ghcr.io/thetechquant/neck-stack/neckdash:latest

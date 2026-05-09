@@ -1,10 +1,17 @@
-export function useDashApi() {
-  const config = useRuntimeConfig();
-  const baseURL = import.meta.server
-    ? config.neckdashApiInternalBaseUrl
-    : config.public.neckdashApiBaseUrl;
+import Client from "~/lib/neckdash-client.gen";
 
-  return <T>(path: string, options: Parameters<typeof $fetch<T>>[1] = {}) => {
-    return $fetch<T>(path, { baseURL, ...options });
-  };
+export function useDashApiBaseURL() {
+  const config = useRuntimeConfig();
+  const base = String(import.meta.server
+    ? config.neckdashApiInternalBaseUrl
+    : config.public.neckdashApiBaseUrl
+  ).replace(/\/+$/g, "");
+  if (import.meta.client && base.startsWith("/")) {
+    return `${window.location.origin}${base}`;
+  }
+  return base;
+}
+
+export function useDashClient() {
+  return new Client(useDashApiBaseURL());
 }

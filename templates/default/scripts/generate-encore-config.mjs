@@ -54,6 +54,14 @@ function requiredComposeEnv(name) {
   return "${" + `${name}:?set ${name}` + "}";
 }
 
+function komodoVariableName(value) {
+  return String(value).toUpperCase().replace(/[^A-Z0-9_]/g, "_").replace(/^([0-9])/, "_$1");
+}
+
+function secretKomodoVariableName(secret) {
+  return komodoVariableName(`${appId}_${secret}`);
+}
+
 function hasDatabases() {
   return resources.databases.length > 0;
 }
@@ -391,6 +399,9 @@ services:
       VICTORIA_METRICS_QUERY_URL: \${VICTORIA_METRICS_QUERY_URL:-http://victoria-metrics:8428/api/v1/query}
       VICTORIA_LOGS_INSERT_URL: \${VICTORIA_LOGS_INSERT_URL:-http://victoria-logs:9428/insert/jsonline?_stream_fields=app_id,env_id,service,level&_time_field=timestamp&_msg_field=message}
       VICTORIA_LOGS_QUERY_URL: \${VICTORIA_LOGS_QUERY_URL:-http://victoria-logs:9428/select/logsql/query}
+      NECKDASH_KOMODO_URL: \${NECKDASH_KOMODO_URL:-}
+      NECKDASH_KOMODO_API_KEY: \${NECKDASH_KOMODO_API_KEY:-}
+      NECKDASH_KOMODO_API_SECRET: \${NECKDASH_KOMODO_API_SECRET:-}
     expose:
       - "8080"
     volumes:
@@ -501,7 +512,7 @@ function komodoEnvLines() {
     lines.push(`POSTGRES_USER = ${postgresUser}`);
   }
   for (const secret of resources.secrets) {
-    lines.push(`${secret} = [[${secret}]]`);
+    lines.push(`${secret} = [[${secretKomodoVariableName(secret)}]]`);
   }
   if (hasPostgres() || hasCache() || resources.secrets.length > 0) {
     lines.push("");
@@ -534,6 +545,9 @@ function neckDashKomodoEnvLines() {
     "VICTORIA_LOGS_INSERT_URL = http://victoria-logs:9428/insert/jsonline?_stream_fields=app_id,env_id,service,level&_time_field=timestamp&_msg_field=message",
     "VICTORIA_LOGS_QUERY_URL = http://victoria-logs:9428/select/logsql/query",
     "VICTORIA_LOGS_RETENTION = 30d",
+    "NECKDASH_KOMODO_URL = [[NECKDASH_KOMODO_URL]]",
+    "NECKDASH_KOMODO_API_KEY = [[NECKDASH_KOMODO_API_KEY]]",
+    "NECKDASH_KOMODO_API_SECRET = [[NECKDASH_KOMODO_API_SECRET]]",
     `PROD_PLATFORM = ${prodPlatform}`,
     "",
     `NECKDASH_IMAGE = ${defaultNeckDashImage}`,

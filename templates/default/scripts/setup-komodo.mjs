@@ -192,8 +192,38 @@ async function getResourceSync(name) {
   }
 }
 
+async function getVariable(name) {
+  try {
+    return await komodoRead("GetVariable", { name });
+  } catch {
+    return null;
+  }
+}
+
 function resourceId(resource) {
   return resource?.id || resource?._id?.$oid;
+}
+
+async function upsertVariable(name, value, { secret = false, description = "" } = {}) {
+  if (dryRun) {
+    console.log(chalk.yellow(`[dry-run] create/update Komodo variable ${name}`));
+    return;
+  }
+
+  const existing = await getVariable(name);
+  if (existing) {
+    await komodoWrite("UpdateVariableValue", { name, value });
+    console.log(chalk.green(`Updated Komodo variable ${name}`));
+    return;
+  }
+
+  await komodoWrite("CreateVariable", {
+    name,
+    value,
+    description,
+    is_secret: secret,
+  });
+  console.log(chalk.green(`Created Komodo variable ${name}`));
 }
 
 async function upsertSync(name, contents, { updateExisting = true } = {}) {
@@ -280,6 +310,16 @@ console.log(`\n${chalk.bold.cyan("Set up Komodo resources")}`);
 await ensureIngress();
 
 if (!skipShared) {
+  await upsertVariable("NECKDASH_KOMODO_URL", komodoUrl, {
+    description: "Komodo Core URL used by NECK Dash to manage app secrets and frontend variables.",
+  });
+  await upsertVariable("NECKDASH_KOMODO_API_KEY", komodoApiKey, {
+    description: "Komodo API key used by NECK Dash.",
+  });
+  await upsertVariable("NECKDASH_KOMODO_API_SECRET", komodoApiSecret, {
+    secret: true,
+    description: "Komodo API secret used by NECK Dash.",
+  });
   const sharedContents = await readFile("deploy/neckdash/resources.toml");
   const changed = await upsertSync(sharedSyncName, sharedContents, { updateExisting: updateShared });
   await runSync(sharedSyncName, changed);

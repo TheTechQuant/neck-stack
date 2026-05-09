@@ -149,9 +149,10 @@ Relevant variables:
 - `NECK_INGRESS_NETWORK`, defaults to `neck-ingress`; every app on the same server should use the same value.
 - `NECKDASH_APPS_ROOT`, set on the shared `neckdash` stack; it should point at the parent directory containing app run directories so Dash can read `deploy/encore/meta.json` and `docs/openapi.json`.
 - `NECKDASH_TRACE_AUTH_KEYS`, set on the shared `neckdash` stack; use comma/newline-separated `app_id=key` entries when multiple apps run on the same server.
+- `NECKDASH_KOMODO_URL`, `NECKDASH_KOMODO_API_KEY`, and `NECKDASH_KOMODO_API_SECRET`, set on the shared `neckdash` stack when you want the Settings tab to update backend secrets and frontend variables through Komodo. `pnpm komodo:setup` creates these Komodo variables automatically.
 - `POSTGRES_PASSWORD`, only when SQL databases exist.
 - `REDIS_PASSWORD`, only when cache exists.
-- Encore `secret(...)` declarations, by exact secret name.
+- Encore `secret(...)` declarations, exposed to the container by exact secret name and backed by app-prefixed Komodo variables such as `APPID_SECRET_NAME` so multiple apps can safely reuse common secret names on one server.
 - `NECK_DASH_PASSWORD_HASH`, for `https://DOMAIN/__neck_dash`.
 - The generated trace signing key, written into `deploy/encore/infra.prod.json` at build time and mirrored in the shared `neckdash` stack's `NECKDASH_TRACE_AUTH_KEYS`. It is not required as a backend runtime environment variable.
 - `VICTORIA_METRICS_REMOTE_WRITE_URL`, used by Encore's Prometheus remote-write metrics exporter. The generated default points at shared VictoriaMetrics and adds `app_id` as an extra write label.
@@ -176,7 +177,11 @@ The generated Encore infra config enables the official Prometheus remote-write m
 
 NECK Dash also ships a trace ingestion adapter that validates Encore trace signatures, converts Encore trace streams to OpenTelemetry JSON, and forwards them to VictoriaTraces. Backends should post to `http://caddy:8080/__neck_dash/api/trace` on the app Compose network; app Caddy copies `X-Encore-Auth` into `X-Neckdash-Trace-Auth` and strips the reserved header before proxying to NECK Dash. Structured `encore.dev/log` events in those trace streams are written once to VictoriaLogs as searchable fields with `app_id`, `trace_id`, and `span_id` preserved for correlation. The Logs tab queries VictoriaLogs, and `/__neck_dash/api/logs/tail` proxies VictoriaLogs live tailing as NDJSON for terminal use.
 
-The dashboard discovers app catalogs by scanning `NECKDASH_APPS_ROOT` for `*/deploy/encore/meta.json` and matching `docs/openapi.json` beside each app. It exposes an app picker and scopes Insights, traces, logs, metrics, Flow, Service Catalog, and OpenAPI views to the selected app.
+The dashboard discovers app catalogs by scanning `NECKDASH_APPS_ROOT` for `*/deploy/encore/meta.json` and matching `docs/openapi.json` beside each app. It exposes an app picker, persists the selected view locally, and scopes Insights, traces, logs, metrics, Flow, Service Catalog, and OpenAPI views to the selected app.
+
+The Settings tab is enabled when `NECKDASH_KOMODO_URL`, `NECKDASH_KOMODO_API_KEY`, and `NECKDASH_KOMODO_API_SECRET` are present on the shared stack. It stores backend `secret(...)` values as app-prefixed Komodo secret variables, writes frontend `NUXT_PUBLIC_` variables into the app stack environment, and can redeploy the app stack after a save.
+
+If the backend logs `failed fetching container metadata: can't collect container meta in CLOUD_LOCAL, using fallback`, that warning is from Encore's Prometheus exporter running in self-hosted local-cloud mode. It is non-fatal; runtime metrics still export with fallback instance labels.
 
 For high-volume apps, NECK Dash keeps exploratory reads bounded: trace listing defaults to the last hour and caps all-service fanout with `NECKDASH_TRACE_SERVICE_FANOUT_LIMIT`; log listing defaults to the last hour with a hard result limit; live log tailing requires at least one query, service, level, or trace-id filter.
 

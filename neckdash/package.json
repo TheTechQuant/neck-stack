@@ -1,0 +1,23 @@
+{
+  "name": "neckdash",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "encore check",
+    "dev": "encore run",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "encore.dev": "1.57.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.3",
+    "vitest": "^3.2.4"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "^4.13.0"
+  }
+}

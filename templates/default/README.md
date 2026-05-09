@@ -64,7 +64,7 @@ pnpm check
 git push -u origin main
 ```
 
-After the first `main` pipeline has pushed production images, `pnpm komodo:setup` can create the shared `neck-ingress` network/Caddy proxy, create the shared NECK Dash Resource Sync if missing, and create/update this app's Resource Sync. It asks for `KOMODO_API_KEY` and `KOMODO_API_SECRET` the first time and saves them to `.env`. Without API credentials, import `deploy/neckdash/resources.toml` once per server and this app's `deploy/komodo/resources.toml` manually. Encore Cloud credentials are optional: CI runs tests locally when they are absent, or uses `ENCORE_CLOUD_AUTH_KEY`, `ENCORE_AUTH_CONFIG`, or `ENCORE_AUTH_TOKEN` when you want Cloud-linked development secrets.
+After the first `main` pipeline has pushed production images, `pnpm komodo:setup` can create the shared `neck-ingress` network/Caddy proxy, create the shared NECK Dash Resource Sync if missing, create the Komodo variables NECK Dash uses for app config edits, and create/update this app's Resource Sync. It asks for `KOMODO_API_KEY` and `KOMODO_API_SECRET` the first time and saves them to `.env`. Without API credentials, import `deploy/neckdash/resources.toml` once per server and this app's `deploy/komodo/resources.toml` manually. Encore Cloud credentials are optional: CI runs tests locally when they are absent, or uses `ENCORE_CLOUD_AUTH_KEY`, `ENCORE_AUTH_CONFIG`, or `ENCORE_AUTH_TOKEN` when you want Cloud-linked development secrets.
 
 Production is driven by Encore metadata:
 
@@ -79,7 +79,7 @@ Production is driven by Encore metadata:
 - `CacheCluster` declarations add private Redis.
 - `Topic` and `Subscription` declarations add NSQ.
 - `CronJob` declarations add Komodo scheduled actions that call the Encore cron endpoints.
-- `secret(...)` declarations become required environment entries.
+- `secret(...)` declarations become required environment entries backed by app-prefixed Komodo variables, so common names like `StripeAPIKey` do not collide across apps on one server.
 - `Bucket` declarations are detected but not provisioned; use external S3/R2/GCS.
 
 `pnpm infra:encore` is the only source of generated production config. It reads `encore debug meta -f json` and writes `deploy/encore/infra.prod.json`, `deploy/encore/meta.json`, `deploy/compose.yaml`, `deploy/komodo/resources.toml`, and `deploy/neckdash/*`; there is no source-scan fallback or separate static example infra file to keep in sync.
@@ -92,9 +92,9 @@ See [docs/deployment.md](docs/deployment.md) for CI variables, Komodo setup, das
 
 ## NECK Dash
 
-`https://DOMAIN/__neck_dash` is the default production observability UI. Import `deploy/neckdash/resources.toml` once per server, then import this app's `deploy/komodo/resources.toml`. The dashboard discovers apps from `NECKDASH_APPS_ROOT`, provides an app picker, and scopes traces/logs/metrics/Flow/catalog to the selected app.
+`https://DOMAIN/__neck_dash` is the default production observability UI. Import `deploy/neckdash/resources.toml` once per server, then import this app's `deploy/komodo/resources.toml`. The dashboard discovers apps from `NECKDASH_APPS_ROOT`, provides an app picker, persists the selected view locally, and scopes traces/logs/metrics/Flow/catalog to the selected app.
 
-The backend exports Encore metrics to VictoriaMetrics with the official Prometheus remote-write infra primitive and an `app_id` write label. NECK Dash queries Insights, built-in metrics, and custom metrics from VictoriaMetrics, structured logs from VictoriaLogs, and reads flow, service catalog, and OpenAPI data from `/__neck_dash/api`. Trace ingestion is routed through app Caddy at `/__neck_dash/api/trace` and relies on Encore trace signatures.
+The backend exports Encore metrics to VictoriaMetrics with the official Prometheus remote-write infra primitive and an `app_id` write label. NECK Dash queries Insights, built-in metrics, and custom metrics from VictoriaMetrics, structured logs from VictoriaLogs, and reads flow, service catalog, and OpenAPI data from `/__neck_dash/api`. The Settings tab can update backend `secret(...)` values and frontend `NUXT_PUBLIC_` variables through Komodo after `pnpm komodo:setup` has configured shared dashboard credentials; backend secrets are stored in app-prefixed Komodo variables. Trace ingestion is routed through app Caddy at `/__neck_dash/api/trace` and relies on Encore trace signatures.
 
 High-volume installs are expected: trace lists are time-bounded and service-fanout limited, direct trace-id searches use a direct lookup, log searches are time/row limited, and live log tailing requires a filter.
 

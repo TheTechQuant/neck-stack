@@ -1,535 +1,80 @@
 <script setup lang="ts">
-type TraceSummary = {
-  traceId: string;
-  service: string;
-  endpoint: string;
-  startedAt: string;
-  durationMs: number;
-  spanCount: number;
-  error: boolean;
-  statusCode: number;
-  environment: string;
-};
-
-type SpanSummary = {
-  spanId: string;
-  parentSpanId: string;
-  spanType: string;
-  serviceName: string;
-  endpointName: string;
-  topicName: string;
-  subscriptionName: string;
-  messageId: string;
-  startedAt: string;
-  durationMs: number;
-  statusCode: number;
-  isError: boolean;
-};
-
-type TraceEvent = {
-  spanId: string;
-  eventId: string;
-  eventType: string;
-  eventTime: string;
-  eventJson: string;
-};
-
-type TraceDetail = {
-  traceId: string;
-  rawJson: string;
-};
-
-type ServiceMetric = {
-  service: string;
-  endpoint: string;
-  traceCount: number;
-  errorCount: number;
-};
-
-type InsightsPoint = {
-  timestamp: string;
-  value: number;
-};
-
-type InsightsSeries = {
-  service: string;
-  points: InsightsPoint[];
-};
-
-type InsightsService = {
-  service: string;
-  requests: number;
-  errors: number;
-  errorRate: number;
-  rate: number;
-};
-
-type InsightsResponse = {
-  range: string;
-  windowSeconds: number;
-  requests: number;
-  errors: number;
-  errorRate: number;
-  requestRate: InsightsSeries[];
-  services: InsightsService[];
-};
-
-type MetricDefinition = {
-  name: string;
-  kind: string;
-  doc: string;
-  serviceName: string;
-  labels: Array<{ key: string; doc: string }>;
-};
-
-type MetricSample = {
-  name: string;
-  kind: string;
-  serviceName: string;
-  labels: Record<string, string>;
-  value: number;
-  windowValue: number;
-  timestamp: string;
-};
-
-type FlowNode = {
-  id: string;
-  kind: string;
-  name: string;
-  doc?: string;
-  publicEndpoints?: number;
-  authEndpoints?: number;
-  privateEndpoints?: number;
-  databases?: string[];
-  cronJobs?: string[];
-};
-
-type FlowEdge = {
-  source: string;
-  target: string;
-  kind: string;
-  count: number;
-  static?: boolean;
-  observed?: boolean;
-  staticCount?: number;
-  observedCount?: number;
-  details?: string[];
-};
-
-type CatalogEndpoint = {
-  serviceName: string;
-  name: string;
-  method: string;
-  path: string;
-  access: string;
-  protocol: string;
-  doc: string;
-  summary: string;
-  description: string;
-  exposed: boolean;
-  authRequired: boolean;
-  allowUnauthenticated: boolean;
-  streaming: boolean;
-  tags: string[];
-  requestSchemaJson: string;
-  responseSchemaJson: string;
-};
-
-type CatalogService = {
-  name: string;
-  relPath: string;
-  doc: string;
-  databases: string[];
-  metrics: string[];
-  buckets: Array<{ name: string; operations: string[] }>;
-  endpoints: CatalogEndpoint[];
-  publicCount: number;
-  privateCount: number;
-  streamingCount: number;
-};
-
-type CatalogResponse = {
-  appId: string;
-  metaJson: string;
-  openapiJson: string;
-  services: CatalogService[];
-};
-
-type DashApp = {
-  id: string;
-  name: string;
-  metaPath: string;
-  openapiPath: string;
-  hasMeta: boolean;
-  hasOpenapi: boolean;
-};
-
-const tabs = ["Insights", "Traces", "Logs", "Metrics", "Flow", "Catalog", "Settings"] as const;
-const insightRanges = ["10m", "1h", "8h", "24h", "3d", "7d"] as const;
-const activeTab = ref<(typeof tabs)[number]>("Insights");
-const api = useDashApi();
-const selectedAppID = ref("");
-const insightRange = ref<(typeof insightRanges)[number]>("24h");
-const traceHours = ref(1);
-const search = ref("");
-const service = ref("");
-const selectedTraceID = ref("");
-const selectedEvent = ref<TraceEvent | null>(null);
-const selectedCatalogServiceName = ref("");
-const selectedCatalogEndpointKey = ref("");
-
-const { data: appsData, refresh: refreshApps } = await useAsyncData(
-  "neckdash-apps",
-  () => api<{ apps: DashApp[]; defaultApp: string }>("/apps"),
-);
-
-const apps = computed(() => appsData.value?.apps ?? []);
-const selectedApp = computed(() => apps.value.find((app) => app.id === selectedAppID.value) ?? apps.value[0]);
-const appQuery = computed(() => selectedApp.value?.id || "");
-
-watchEffect(() => {
-  if (!selectedAppID.value && appsData.value?.defaultApp) {
-    selectedAppID.value = appsData.value.defaultApp;
-  }
-});
-
-const { data: insightsData, refresh: refreshInsights } = await useAsyncData(
-  "neckdash-insights",
-  () => api<InsightsResponse>("/insights", { query: { range: insightRange.value, app: appQuery.value } }),
-  { watch: [insightRange, selectedAppID] },
-);
-
-const { data: traceList, refresh: refreshTraces } = await useAsyncData(
-  "neckdash-traces",
-  () => api<{ traces: TraceSummary[] }>("/traces", {
-    query: {
-      limit: 50,
-      app: appQuery.value,
-      service: service.value,
-      search: search.value,
-      hours: traceHours.value,
-    },
-  }),
-  { watch: [selectedAppID, service, search, traceHours] },
-);
-
-const { data: traceServicesData, refresh: refreshTraceServices } = await useAsyncData(
-  "neckdash-trace-services",
-  () => api<{ services: string[] }>("/traces/services", { query: { app: appQuery.value } }),
-  { watch: [selectedAppID] },
-);
-
-const traces = computed(() => traceList.value?.traces ?? []);
-const services = computed(() => traceServicesData.value?.services ?? []);
-const selectedTrace = computed(() => traces.value.find((trace) => trace.traceId === selectedTraceID.value) ?? traces.value[0]);
-
-watchEffect(() => {
-  if (!selectedTraceID.value && traces.value[0]) {
-    selectedTraceID.value = traces.value[0].traceId;
-  }
-});
-
-const { data: traceDetail, refresh: refreshTraceDetail } = await useAsyncData(
-  "neckdash-trace-detail",
-  () => selectedTrace.value
-    ? api<TraceDetail>(`/traces/detail/${selectedTrace.value.traceId}`)
-    : Promise.resolve(null),
-  { watch: [selectedTraceID] },
-);
-
-const { data: metricsData, refresh: refreshMetrics } = await useAsyncData(
-  "neckdash-metrics",
-  () => api<{ windowHours: number; services: ServiceMetric[]; runtime: MetricSample[] }>("/metrics/summary", { query: { hours: 24, app: appQuery.value } }),
-  { watch: [selectedAppID] },
-);
-
-const { data: customMetricsData, refresh: refreshCustomMetrics } = await useAsyncData(
-  "neckdash-custom-metrics",
-  () => api<{ windowHours: number; definitions: MetricDefinition[]; samples: MetricSample[] }>("/metrics/custom", { query: { hours: 24, app: appQuery.value } }),
-  { watch: [selectedAppID] },
-);
-
-const { data: flowData, refresh: refreshFlow } = await useAsyncData(
-  "neckdash-flow",
-  () => api<{ nodes: FlowNode[]; edges: FlowEdge[] }>("/flow", { query: { app: appQuery.value } }),
-  { watch: [selectedAppID] },
-);
-
-const { data: catalogData, refresh: refreshCatalog } = await useAsyncData(
-  "neckdash-catalog",
-  () => api<CatalogResponse>("/catalog", { query: { app: appQuery.value } }),
-  { watch: [selectedAppID] },
-);
-
-const { data: samplingData, refresh: refreshSampling } = await useAsyncData(
-  "neckdash-sampling",
-  () => api<{ rules: { scopeType: string; scopeValue: string; rate: number }[]; runtimeNote: string }>("/settings/sampling"),
-);
-
-const insights = computed(() => insightsData.value);
-const insightServices = computed(() => insightsData.value?.services ?? []);
-const insightSeries = computed(() => insightsData.value?.requestRate ?? []);
-const chartSize = { width: 760, height: 260, padX: 34, padY: 22 };
-const chartColors = ["#4cc9a7", "#79a7ff", "#f2b84b", "#ff6b6b", "#c084fc", "#67e8f9", "#f472b6", "#a3e635"];
-const chartMax = computed(() => {
-  const values = insightSeries.value.flatMap((series) => series.points.map((point) => point.value));
-  return Math.max(...values, 0);
-});
-const chartHasData = computed(() => chartMax.value > 0 && insightSeries.value.some((series) => series.points.length > 1));
-const metrics = computed(() => metricsData.value?.services ?? []);
-const runtimeMetrics = computed(() => metricsData.value?.runtime ?? []);
-const customMetricDefinitions = computed(() => customMetricsData.value?.definitions ?? []);
-const customMetricSamples = computed(() => customMetricsData.value?.samples ?? []);
-const flowEdges = computed(() => flowData.value?.edges ?? []);
-const flowNodes = computed(() => {
-  const nodes = new Map<string, FlowNode>((flowData.value?.nodes ?? []).map((node) => [node.id, node]));
-  for (const edge of flowEdges.value) {
-    for (const name of [edge.source, edge.target]) {
-      if (!nodes.has(name)) {
-        nodes.set(name, { id: name, kind: flowNodeKind(name), name: flowNodeName(name) });
-      }
-    }
-  }
-  return [...nodes.values()];
-});
-const jaegerTrace = computed(() => {
-  const raw = safeParse(traceDetail.value?.rawJson) as { data?: Array<{ spans?: Array<Record<string, any>>; processes?: Record<string, { serviceName?: string }> }> } | null;
-  return raw?.data?.[0];
-});
-const spans = computed<SpanSummary[]>(() => (jaegerTrace.value?.spans ?? []).map((span) => ({
-  spanId: String(span.spanID || ""),
-  parentSpanId: Array.isArray(span.references) && span.references[0] ? String(span.references[0].spanID || "") : "",
-  spanType: "span",
-  serviceName: String(jaegerTrace.value?.processes?.[String(span.processID || "")]?.serviceName || span.processID || ""),
-  endpointName: String(span.operationName || ""),
-  topicName: "",
-  subscriptionName: "",
-  messageId: "",
-  startedAt: new Date(Number(span.startTime || 0) / 1000).toISOString(),
-  durationMs: Number(span.duration || 0) / 1000,
-  statusCode: 0,
-  isError: Array.isArray(span.tags) && span.tags.some((tag: any) => tag.key === "error" && String(tag.value) === "true"),
-})));
-const events = computed<TraceEvent[]>(() => (jaegerTrace.value?.spans ?? []).flatMap((span) => (span.logs ?? []).map((log: any, index: number) => ({
-  spanId: String(span.spanID || ""),
-  eventId: `${span.spanID || "span"}-${index}`,
-  eventType: jaegerLogField(log, "event") || jaegerLogField(log, "log.level") || "log",
-  eventTime: new Date(Number(log.timestamp || 0) / 1000).toISOString(),
-  eventJson: JSON.stringify(log),
-}))));
-const catalogServices = computed(() => catalogData.value?.services ?? []);
-const catalogTotals = computed(() => ({
-  services: catalogServices.value.length,
-  endpoints: catalogServices.value.reduce((sum, item) => sum + item.endpoints.length, 0),
-  publicEndpoints: catalogServices.value.reduce((sum, item) => sum + item.publicCount, 0),
-  streamingEndpoints: catalogServices.value.reduce((sum, item) => sum + item.streamingCount, 0),
-}));
-const selectedCatalogService = computed(() => (
-  catalogServices.value.find((item) => item.name === selectedCatalogServiceName.value)
-  ?? catalogServices.value[0]
-));
-const selectedCatalogEndpoint = computed(() => {
-  const endpoints = selectedCatalogService.value?.endpoints ?? [];
-  return endpoints.find((item) => endpointKey(item) === selectedCatalogEndpointKey.value) ?? endpoints[0];
-});
-
-watchEffect(() => {
-  if (!catalogServices.value.some((item) => item.name === selectedCatalogServiceName.value) && catalogServices.value[0]) {
-    selectedCatalogServiceName.value = catalogServices.value[0].name;
-  }
-});
-
-watch(selectedAppID, () => {
-  service.value = "";
-  selectedTraceID.value = "";
-  selectedEvent.value = null;
-  selectedCatalogServiceName.value = "";
-  selectedCatalogEndpointKey.value = "";
-});
-
-watchEffect(() => {
-  const endpoints = selectedCatalogService.value?.endpoints ?? [];
-  if (endpoints[0] && !endpoints.some((item) => endpointKey(item) === selectedCatalogEndpointKey.value)) {
-    selectedCatalogEndpointKey.value = endpointKey(endpoints[0]);
-  }
-});
-
-const stats = computed(() => {
-  const total = traces.value.length;
-  const errors = traces.value.filter((trace) => trace.error).length;
-  const avg = total ? traces.value.reduce((sum, trace) => sum + trace.durationMs, 0) / total : 0;
-  return { total, errors, avg };
-});
-
-function safeParse(value?: string) {
-  if (!value) return null;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
-}
-
-function jaegerLogField(log: any, key: string) {
-  const fields = Array.isArray(log?.fields) ? log.fields : [];
-  const item = fields.find((field: any) => field.key === key);
-  return item ? String(item.value ?? "") : "";
-}
-
-function formatDate(value: string) {
-  if (!value) return "";
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(new Date(value));
-}
-
-function formatMs(value: number) {
-  if (!Number.isFinite(value)) return "0 ms";
-  if (value >= 1000) return `${(value / 1000).toFixed(2)} s`;
-  return `${value.toFixed(value >= 10 ? 0 : 1)} ms`;
-}
-
-function formatMetricValue(value: number) {
-  if (!Number.isFinite(value)) return "0";
-  if (Math.abs(value) >= 1000) return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value);
-  if (Math.abs(value) >= 10) return value.toFixed(2);
-  return value.toFixed(4).replace(/0+$/g, "").replace(/\.$/, "");
-}
-
-function formatPercent(value: number) {
-  if (!Number.isFinite(value)) return "0.0%";
-  return `${(value * 100).toFixed(value > 0 && value < 0.01 ? 2 : 1)}%`;
-}
-
-function formatRate(value: number) {
-  if (!Number.isFinite(value)) return "0/s";
-  if (value >= 100) return `${value.toFixed(0)}/s`;
-  if (value >= 1) return `${value.toFixed(2)}/s`;
-  return `${value.toFixed(4).replace(/0+$/g, "").replace(/\.$/, "")}/s`;
-}
-
-function rangeLabel(value?: string) {
-  const labels: Record<string, string> = {
-    "10m": "Last 10 minutes",
-    "1h": "Last hour",
-    "8h": "Last 8 hours",
-    "24h": "Last 24 hours",
-    "3d": "Last 3 days",
-    "7d": "Last 7 days",
-  };
-  return labels[value || ""] || "Last 24 hours";
-}
-
-function chartPath(series: InsightsSeries) {
-  const points = series.points;
-  if (points.length < 2 || chartMax.value <= 0) return "";
-  const innerWidth = chartSize.width - chartSize.padX * 2;
-  const innerHeight = chartSize.height - chartSize.padY * 2;
-  return points
-    .map((point, index) => {
-      const x = chartSize.padX + (index / Math.max(points.length - 1, 1)) * innerWidth;
-      const y = chartSize.padY + innerHeight - (point.value / chartMax.value) * innerHeight;
-      return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-    })
-    .join(" ");
-}
-
-function chartColor(index: number) {
-  return chartColors[index % chartColors.length];
-}
-
-function endpointKey(endpoint: CatalogEndpoint) {
-  return `${endpoint.method}:${endpoint.path}:${endpoint.name}`;
-}
-
-function selectCatalogService(name: string) {
-  selectedCatalogServiceName.value = name;
-  const service = catalogServices.value.find((item) => item.name === name);
-  selectedCatalogEndpointKey.value = service?.endpoints[0] ? endpointKey(service.endpoints[0]) : "";
-}
-
-function methodClass(method: string) {
-  return `method method-${method.toLowerCase()}`;
-}
-
-function endpointAccess(endpoint: CatalogEndpoint) {
-  if (endpoint.access === "auth") return "auth";
-  return endpoint.exposed ? "public" : "private";
-}
-
-function metricLabels(labels: Record<string, string>) {
-  return Object.entries(labels)
-    .filter(([key]) => !["env_name", "instance_id", "revision_id"].includes(key))
-    .map(([key, value]) => `${key}=${value}`)
-    .join(", ");
-}
-
-function prettyJSON(value: string) {
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2);
-  } catch {
-    return value;
-  }
-}
-
-function refreshActive() {
-  refreshApps();
-  if (activeTab.value === "Insights") refreshInsights();
-  if (activeTab.value === "Traces") {
-    refreshTraceServices();
-    refreshTraces();
-    refreshTraceDetail();
-  }
-  if (activeTab.value === "Logs") refreshNuxtData("neckdash-logs");
-  if (activeTab.value === "Metrics") {
-    refreshMetrics();
-    refreshCustomMetrics();
-  }
-  if (activeTab.value === "Flow") refreshFlow();
-  if (activeTab.value === "Catalog") refreshCatalog();
-  if (activeTab.value === "Settings") refreshSampling();
-}
-
-function openTraceFromLog(traceId: string) {
-  search.value = traceId;
-  selectedTraceID.value = traceId;
-  activeTab.value = "Traces";
-  refreshTraces();
-}
-
-let flowRefreshTimer: number | undefined;
-
-function flowNodeKind(id: string) {
-  return id.startsWith("topic:") ? "topic" : "service";
-}
-
-function flowNodeName(id: string) {
-  return id.replace(/^(service|topic):/, "");
-}
-
-function stopFlowRefresh() {
-  if (flowRefreshTimer !== undefined) {
-    window.clearInterval(flowRefreshTimer);
-    flowRefreshTimer = undefined;
-  }
-}
-
-watch(activeTab, (tab) => {
-  if (!import.meta.client) return;
-  stopFlowRefresh();
-  if (tab === "Flow") {
-    refreshFlow();
-    flowRefreshTimer = window.setInterval(() => {
-      refreshFlow();
-    }, 10_000);
-  }
-}, { immediate: true });
-
-onBeforeUnmount(stopFlowRefresh);
+const {
+  activeTab,
+  allAppsID,
+  appQuery,
+  apps,
+  backendSecrets,
+  catalogServices,
+  catalogTotals,
+  chartAreaPath,
+  chartColor,
+  chartHasData,
+  chartMax,
+  chartPath,
+  chartSize,
+  configError,
+  configMessage,
+  configPanel,
+  configRedeploy,
+  configSaving,
+  configSecretName,
+  configSecretValue,
+  customMetricDefinitions,
+  customMetricSamples,
+  detailApp,
+  detailAppQuery,
+  editFrontendVariable,
+  endpointAccess,
+  endpointKey,
+  events,
+  flowEdges,
+  flowNodes,
+  formatDate,
+  formatMetricValue,
+  formatMs,
+  formatPercent,
+  formatRate,
+  frontendVarName,
+  frontendVarValue,
+  frontendVariables,
+  insightRange,
+  insightRanges,
+  insightSeries,
+  insightServices,
+  insights,
+  liveMode,
+  liveStatus,
+  metricLabels,
+  metrics,
+  methodClass,
+  openTraceFromLog,
+  prettyJSON,
+  rangeLabel,
+  refreshActive,
+  runtimeMetrics,
+  samplingData,
+  saveBackendSecret,
+  saveFrontendVariable,
+  search,
+  selectCatalogService,
+  selectedAppID,
+  selectedAppLabel,
+  selectedCatalogEndpoint,
+  selectedCatalogEndpointKey,
+  selectedCatalogService,
+  selectedEvent,
+  selectedTrace,
+  selectedTraceID,
+  service,
+  services,
+  spans,
+  stackVariables,
+  stats,
+  tabs,
+  traceHours,
+  traces,
+} = await useDashboardState();
 </script>
 
 <template>
@@ -537,7 +82,30 @@ onBeforeUnmount(stopFlowRefresh);
     <aside class="sidebar">
       <div class="brand">
         <h1>NECK Dash</h1>
-        <span class="status" />
+        <span class="status" :class="liveStatus" />
+      </div>
+      <div class="app-switcher" aria-label="Application selector">
+        <span class="section-label">Apps</span>
+        <button
+          class="app-option"
+          :class="{ active: selectedAppID === allAppsID }"
+          type="button"
+          @click="selectedAppID = allAppsID"
+        >
+          <span>All apps</span>
+          <small>{{ apps.length }} discovered</small>
+        </button>
+        <button
+          v-for="app in apps"
+          :key="app.id"
+          class="app-option"
+          :class="{ active: selectedAppID === app.id }"
+          type="button"
+          @click="selectedAppID = app.id"
+        >
+          <span>{{ app.name || app.id }}</span>
+          <small>{{ app.hasOpenapi ? "catalog ready" : "metadata only" }}</small>
+        </button>
       </div>
       <nav class="nav">
         <button
@@ -554,14 +122,26 @@ onBeforeUnmount(stopFlowRefresh);
 
     <main class="main">
       <div class="topbar">
-        <h2>{{ activeTab }}</h2>
+        <div>
+          <h2>{{ activeTab }}</h2>
+          <p>{{ selectedAppLabel }} · {{ liveStatus === "live" ? "live updates" : liveStatus }}</p>
+        </div>
         <div class="toolbar">
+          <button
+            class="button live-toggle"
+            :class="{ active: liveMode }"
+            type="button"
+            @click="liveMode = !liveMode"
+          >
+            {{ liveMode ? "Live" : "Paused" }}
+          </button>
           <select v-if="activeTab === 'Insights'" v-model="insightRange" class="input compact">
             <option v-for="range in insightRanges" :key="range" :value="range">
               {{ rangeLabel(range) }}
             </option>
           </select>
-          <select v-if="apps.length > 1" v-model="selectedAppID" class="input compact">
+          <select v-model="selectedAppID" class="input compact">
+            <option :value="allAppsID">All apps</option>
             <option v-for="app in apps" :key="app.id" :value="app.id">
               {{ app.name || app.id }}
             </option>
@@ -627,6 +207,29 @@ onBeforeUnmount(stopFlowRefresh);
               role="img"
               aria-label="Request rate by service"
             >
+              <defs>
+                <linearGradient
+                  v-for="(series, index) in insightSeries"
+                  :id="`area-${index}`"
+                  :key="`area-${series.service}`"
+                  x1="0"
+                  x2="0"
+                  y1="0"
+                  y2="1"
+                >
+                  <stop offset="0%" :stop-color="chartColor(index)" stop-opacity="0.24" />
+                  <stop offset="100%" :stop-color="chartColor(index)" stop-opacity="0" />
+                </linearGradient>
+              </defs>
+              <line
+                v-for="line in 4"
+                :key="line"
+                :x1="chartSize.padX"
+                :x2="chartSize.width - chartSize.padX"
+                :y1="chartSize.padY + ((chartSize.height - chartSize.padY * 2) / 4) * line"
+                :y2="chartSize.padY + ((chartSize.height - chartSize.padY * 2) / 4) * line"
+                class="grid-line"
+              />
               <line
                 :x1="chartSize.padX"
                 :x2="chartSize.width - chartSize.padX"
@@ -643,11 +246,21 @@ onBeforeUnmount(stopFlowRefresh);
               />
               <path
                 v-for="(series, index) in insightSeries"
+                :key="`fill-${series.service}`"
+                :d="chartAreaPath(series)"
+                :fill="`url(#area-${index})`"
+                class="chart-area"
+              />
+              <path
+                v-for="(series, index) in insightSeries"
                 :key="series.service"
                 :d="chartPath(series)"
                 :stroke="chartColor(index)"
                 class="chart-line"
               />
+              <text :x="chartSize.padX" :y="chartSize.padY - 6" class="chart-label">
+                {{ formatRate(chartMax) }}
+              </text>
             </svg>
             <div class="legend">
               <span v-for="(series, index) in insightSeries" :key="series.service">
@@ -983,16 +596,178 @@ onBeforeUnmount(stopFlowRefresh);
         </div>
       </section>
 
-      <section v-else class="panel detail">
-        <h3>Sampling</h3>
-        <div class="list">
-          <div v-for="rule in samplingData?.rules || []" :key="`${rule.scopeType}:${rule.scopeValue}`" class="list-item">
-            <span class="pill">{{ rule.scopeType }}</span>
-            <strong>{{ rule.scopeValue || "default" }}</strong>
-            <span class="muted">{{ Math.round(rule.rate * 100) }}%</span>
+      <section v-else class="settings-grid">
+        <div class="panel detail settings-summary">
+          <div class="panel-heading">
+            <div>
+              <h3>Production config</h3>
+              <p class="muted">
+                {{ detailApp?.name || detailAppQuery || "No app selected" }} · {{ configPanel?.stackName || detailAppQuery || "stack" }}
+              </p>
+            </div>
+            <span class="pill" :class="{ error: !configPanel?.komodoConfigured }">
+              {{ configPanel?.komodoConfigured ? "Komodo connected" : "Komodo missing" }}
+            </span>
+          </div>
+          <p class="muted summary-copy">
+            {{ configPanel?.runtimeNote }}
+          </p>
+          <div v-if="!configPanel?.komodoConfigured" class="notice">
+            Set {{ configPanel?.requiredEnv?.join(", ") || "NECKDASH_KOMODO_URL, NECKDASH_KOMODO_API_KEY, NECKDASH_KOMODO_API_SECRET" }}
+            on the shared neckdash stack to edit app configuration from here.
+          </div>
+          <div v-if="configMessage" class="notice success">
+            {{ configMessage }}
+          </div>
+          <div v-if="configError" class="notice error">
+            {{ configError }}
           </div>
         </div>
-        <p class="muted">{{ samplingData?.runtimeNote }}</p>
+
+        <form class="panel detail config-card" @submit.prevent="saveBackendSecret">
+          <div class="panel-heading">
+            <div>
+              <h3>Backend secrets</h3>
+              <p class="muted">Encore `secret(...)` values stored as Komodo secret variables.</p>
+            </div>
+            <span class="pill">{{ backendSecrets.length }} declared</span>
+          </div>
+          <label class="field">
+            <span>Secret</span>
+            <select v-if="backendSecrets.length" v-model="configSecretName" class="input">
+              <option v-for="item in backendSecrets" :key="item.name" :value="item.name">
+                {{ item.name }} · {{ item.present ? "set" : "missing" }}
+              </option>
+            </select>
+            <input v-else v-model="configSecretName" class="input" placeholder="No Encore secrets found" disabled>
+          </label>
+          <label class="field">
+            <span>Value</span>
+            <input v-model="configSecretValue" class="input" type="password" autocomplete="new-password" placeholder="New secret value">
+          </label>
+          <div class="config-actions">
+            <label class="toggle">
+              <input v-model="configRedeploy" type="checkbox">
+              Redeploy after save
+            </label>
+            <button
+              class="button primary"
+              type="submit"
+              :disabled="configSaving || !configPanel?.komodoConfigured || !configSecretName || !configSecretValue || backendSecrets.length === 0"
+            >
+              {{ configSaving ? "Saving" : "Save secret" }}
+            </button>
+          </div>
+          <div class="config-list compact-list">
+            <div v-for="item in backendSecrets" :key="item.name" class="config-row">
+              <div>
+                <strong>{{ item.name }}</strong>
+                <small>{{ item.source }}</small>
+              </div>
+              <span class="pill" :class="{ error: !item.present }">
+                {{ item.present ? "set" : "missing" }}
+              </span>
+            </div>
+            <div v-if="backendSecrets.length === 0" class="empty small">
+              No backend secret declarations in this app's Encore metadata.
+            </div>
+          </div>
+        </form>
+
+        <form class="panel detail config-card" @submit.prevent="saveFrontendVariable">
+          <div class="panel-heading">
+            <div>
+              <h3>Frontend variables</h3>
+              <p class="muted">Nuxt public/runtime variables written into the app stack environment.</p>
+            </div>
+            <span class="pill">{{ frontendVariables.length }} active</span>
+          </div>
+          <label class="field">
+            <span>Name</span>
+            <input v-model="frontendVarName" class="input mono" list="frontend-vars" placeholder="NUXT_PUBLIC_FEATURE_FLAG">
+            <datalist id="frontend-vars">
+              <option v-for="item in frontendVariables" :key="item.name" :value="item.name" />
+            </datalist>
+          </label>
+          <label class="field">
+            <span>Value</span>
+            <input v-model="frontendVarValue" class="input mono" placeholder="value">
+          </label>
+          <div class="config-actions">
+            <label class="toggle">
+              <input v-model="configRedeploy" type="checkbox">
+              Redeploy after save
+            </label>
+            <button
+              class="button primary"
+              type="submit"
+              :disabled="configSaving || !configPanel?.komodoConfigured || !frontendVarName"
+            >
+              {{ configSaving ? "Saving" : "Save variable" }}
+            </button>
+          </div>
+          <div class="config-list compact-list">
+            <button
+              v-for="item in frontendVariables"
+              :key="item.name"
+              class="config-row interactive"
+              type="button"
+              @click="editFrontendVariable(item)"
+            >
+              <div>
+                <strong>{{ item.name }}</strong>
+                <small>{{ item.source }}</small>
+              </div>
+              <span class="mono">{{ item.value || "empty" }}</span>
+            </button>
+            <div v-if="frontendVariables.length === 0" class="empty small">
+              No frontend variables found. Add a `NUXT_PUBLIC_` variable above.
+            </div>
+          </div>
+        </form>
+
+        <div class="panel detail config-card">
+          <div class="panel-heading">
+            <div>
+              <h3>Stack environment</h3>
+              <p class="muted">Read-only generated values from the app stack.</p>
+            </div>
+            <span class="pill">{{ stackVariables.length }}</span>
+          </div>
+          <div class="config-list">
+            <div v-for="item in stackVariables" :key="item.name" class="config-row">
+              <div>
+                <strong>{{ item.name }}</strong>
+                <small>{{ item.source }}</small>
+              </div>
+              <span class="mono">{{ item.value || "empty" }}</span>
+            </div>
+            <div v-if="stackVariables.length === 0" class="empty small">
+              No read-only stack variables.
+            </div>
+          </div>
+        </div>
+
+        <div class="panel detail config-card">
+          <div class="panel-heading">
+            <div>
+              <h3>Sampling</h3>
+              <p class="muted">Current local runtime sampling note.</p>
+            </div>
+            <span class="pill">{{ samplingData?.rules?.length || 0 }} rules</span>
+          </div>
+          <div class="list">
+            <div v-for="rule in samplingData?.rules || []" :key="`${rule.scopeType}:${rule.scopeValue}`" class="list-item">
+              <span class="pill">{{ rule.scopeType }}</span>
+              <strong>{{ rule.scopeValue || "default" }}</strong>
+              <span class="muted">{{ Math.round(rule.rate * 100) }}%</span>
+            </div>
+            <div v-if="(samplingData?.rules || []).length === 0" class="empty small">
+              No explicit sampling rules.
+            </div>
+          </div>
+          <p class="muted summary-copy">{{ samplingData?.runtimeNote }}</p>
+        </div>
       </section>
     </main>
   </div>

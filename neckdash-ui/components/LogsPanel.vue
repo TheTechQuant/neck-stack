@@ -23,7 +23,7 @@ const props = defineProps<{
   appId?: string;
 }>();
 
-const api = useDashApi();
+const client = useDashClient();
 const config = useRuntimeConfig();
 const query = ref("");
 const service = ref("");
@@ -34,16 +34,14 @@ const autoRefresh = ref(false);
 
 const { data: logsData, pending, refresh } = await useAsyncData(
   "neckdash-logs",
-  () => api<LogListResponse>("/logs", {
-    query: {
-      query: query.value,
-      app: props.appId || "",
-      service: service.value,
-      level: level.value,
-      traceId: traceId.value,
-      hours: hours.value,
-      limit: 200,
-    },
+  () => client.dash.listLogs({
+    query: query.value,
+    app: props.appId || "",
+    service: service.value,
+    level: level.value,
+    traceId: traceId.value,
+    hours: hours.value,
+    limit: 200,
   }),
   { watch: [() => props.appId, query, service, level, traceId, hours] },
 );
