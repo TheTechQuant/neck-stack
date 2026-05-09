@@ -50,17 +50,9 @@ jobs:
           echo "neckdash_latest=${registry_image}/neckdash:latest" >> "$GITHUB_OUTPUT"
           echo "neckdash_sha_amd64=${registry_image}/neckdash:${GITHUB_SHA}-amd64" >> "$GITHUB_OUTPUT"
           echo "neckdash_sha_arm64=${registry_image}/neckdash:${GITHUB_SHA}-arm64" >> "$GITHUB_OUTPUT"
-          echo "ui_sha=${registry_image}/neckdash-ui:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          echo "ui_latest=${registry_image}/neckdash-ui:latest" >> "$GITHUB_OUTPUT"
 
       - name: Test NECK Dash
         run: pnpm test:neckdash
-
-      - name: Generate NECK Dash client
-        run: pnpm gen:neckdash-client
-
-      - name: Typecheck NECK Dash UI
-        run: pnpm --filter neckdash-ui typecheck
 
       - name: Build and push NECK Dash image variants
         run: |
@@ -90,15 +82,3 @@ jobs:
             -t "${{ steps.vars.outputs.neckdash_latest }}" \
             "${{ steps.vars.outputs.neckdash_sha_amd64 }}" \
             "${{ steps.vars.outputs.neckdash_sha_arm64 }}"
-
-      - name: Build and push NECK Dash UI multi-arch image
-        run: |
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            -f neckdash-ui/Dockerfile \
-            --build-arg NUXT_PUBLIC_NECKDASH_API_BASE_URL="/api" \
-            --build-arg NUXT_NECKDASH_API_INTERNAL_BASE_URL="http://neckdash:8080" \
-            -t "${{ steps.vars.outputs.ui_sha }}" \
-            -t "${{ steps.vars.outputs.ui_latest }}" \
-            --push \
-            .

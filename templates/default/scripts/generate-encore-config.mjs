@@ -17,12 +17,9 @@ const postgresUser = "__POSTGRES_USER__";
 const defaultPostgresPassword = "__POSTGRES_PASSWORD_DEFAULT__";
 const defaultRedisPassword = "__REDIS_PASSWORD_DEFAULT__";
 const domain = process.env.DOMAIN || "__DOMAIN__";
-const neckDashUser = process.env.NECK_DASH_USER || "__NECK_DASH_USER__";
-const neckDashPasswordHash = process.env.NECK_DASH_PASSWORD_HASH || "__NECK_DASH_PASSWORD_HASH_DEFAULT__";
 const defaultTraceAuthKey = "__TRACE_AUTH_KEY_DEFAULT__";
 const registry = "__REGISTRY__";
 const defaultNeckDashImage = "ghcr.io/thetechquant/neck-stack/neckdash:latest";
-const defaultNeckDashUIImage = "ghcr.io/thetechquant/neck-stack/neckdash-ui:latest";
 const defaultSignozImage = "signoz/signoz:v0.122.0";
 const defaultSignozCollectorImage = "signoz/signoz-otel-collector:v0.144.3";
 const defaultSignozClickHouseImage = "clickhouse/clickhouse-server:25.5.6";
@@ -39,7 +36,6 @@ const gitProvider = "__GIT_PROVIDER__";
 const gitAccount = "__GIT_ACCOUNT__";
 const gitlabProject = "__GITLAB_PROJECT__";
 const runDirectory = "__RUN_DIRECTORY__";
-const defaultNeckDashAppsRoot = process.env.NECKDASH_APPS_ROOT || runDirectoryParent(runDirectory);
 
 const resources = await discoverEncoreResources("backend");
 
@@ -51,19 +47,8 @@ function shellQuote(value) {
   return `'${value.replaceAll("'", "'\"'\"'")}'`;
 }
 
-function runDirectoryParent(value) {
-  const parent = path.posix.dirname(String(value || ""));
-  return parent && parent !== "." ? parent : "/opt/stacks";
-}
-
 function composeEnv(name, fallback) {
   return "${" + `${name}:-${String(fallback).replaceAll("$", () => "$$")}` + "}";
-}
-
-function neckDashPasswordHashComposeFallback() {
-  if (process.env.NECK_DASH_PASSWORD_HASH) return process.env.NECK_DASH_PASSWORD_HASH;
-  if (neckDashPasswordHash === "__NECK_DASH_PASSWORD_HASH_DEFAULT__") return "__NECK_DASH_PASSWORD_HASH_DEFAULT_COMPOSE__";
-  return neckDashPasswordHash;
 }
 
 function requiredComposeEnv(name) {
@@ -245,8 +230,6 @@ function renderCompose() {
       caddy.reverse_proxy: "{{upstreams 8080}}"
     environment:
       DOMAIN: \${DOMAIN:-${domain}}
-      NECK_DASH_USER: \${NECK_DASH_USER:-${neckDashUser}}
-      NECK_DASH_PASSWORD_HASH: ${composeEnv("NECK_DASH_PASSWORD_HASH", neckDashPasswordHashComposeFallback())}
     expose:
       - "8080"
     volumes:
@@ -412,41 +395,16 @@ services:
       PORT: 8080
       NECKDASH_TRACE_AUTH_KEYS: \${NECKDASH_TRACE_AUTH_KEYS:-${appId}=${defaultTraceAuthKey}}
       NECKDASH_REQUIRE_TRACE_AUTH: \${NECKDASH_REQUIRE_TRACE_AUTH:-true}
-      NECKDASH_APPS_ROOT: /apps
       SIGNOZ_OTLP_TRACES_URL: \${SIGNOZ_OTLP_TRACES_URL:-http://signoz-otel-collector:4318/v1/traces}
       SIGNOZ_OTLP_LOGS_URL: \${SIGNOZ_OTLP_LOGS_URL:-http://signoz-otel-collector:4318/v1/logs}
       SIGNOZ_OTLP_METRICS_URL: \${SIGNOZ_OTLP_METRICS_URL:-http://signoz-otel-collector:4318/v1/metrics}
       SIGNOZ_BASE_URL: \${SIGNOZ_BASE_URL:-/__signoz}
-      NECKDASH_KOMODO_URL: \${NECKDASH_KOMODO_URL:-}
-      NECKDASH_KOMODO_API_KEY: \${NECKDASH_KOMODO_API_KEY:-}
-      NECKDASH_KOMODO_API_SECRET: \${NECKDASH_KOMODO_API_SECRET:-}
     expose:
       - "8080"
-    volumes:
-      - \${NECKDASH_APPS_ROOT:-${defaultNeckDashAppsRoot}}:/apps:ro
     networks:
       - neck-ingress
     depends_on:
       signoz-otel-collector:
-        condition: service_started
-
-  neckdash-ui:
-    image: \${NECKDASH_UI_IMAGE:-${defaultNeckDashUIImage}}
-    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
-    restart: unless-stopped
-    environment:
-      NUXT_APP_BASE_URL: \${NUXT_APP_BASE_URL:-/__neck_dash/}
-      NUXT_PUBLIC_NECKDASH_API_BASE_URL: \${NUXT_PUBLIC_NECKDASH_API_BASE_URL:-/__neck_dash/api}
-      NUXT_PUBLIC_SIGNOZ_BASE_URL: \${NUXT_PUBLIC_SIGNOZ_BASE_URL:-/__signoz}
-      NUXT_NECKDASH_API_INTERNAL_BASE_URL: \${NUXT_NECKDASH_API_INTERNAL_BASE_URL:-http://neckdash:8080}
-      PORT: 3000
-      HOST: 0.0.0.0
-    expose:
-      - "3000"
-    networks:
-      - neck-ingress
-    depends_on:
-      neckdash:
         condition: service_started
 
   signoz:
@@ -612,8 +570,6 @@ function komodoEnvLines() {
     "APP_ENV = production",
     `DOMAIN = ${domain}`,
     "NECK_INGRESS_NETWORK = neck-ingress",
-    `NECK_DASH_USER = ${neckDashUser}`,
-    `NECK_DASH_PASSWORD_HASH = ${neckDashPasswordHash}`,
     "NUXT_PUBLIC_API_BASE_URL = /api",
     "NUXT_API_INTERNAL_BASE_URL = http://backend:8080",
     `NECKDASH_METRICS_WRITE_URL = http://neckdash:8080/metrics/write?app=${appId}`,
@@ -643,13 +599,8 @@ function komodoEnvLines() {
 function neckDashKomodoEnvLines() {
   return [
     "NECK_INGRESS_NETWORK = neck-ingress",
-    `NECKDASH_APPS_ROOT = ${defaultNeckDashAppsRoot}`,
     `NECKDASH_TRACE_AUTH_KEYS = ${appId}=${defaultTraceAuthKey}`,
     "NECKDASH_REQUIRE_TRACE_AUTH = true",
-    "NUXT_APP_BASE_URL = /__neck_dash/",
-    "NUXT_PUBLIC_NECKDASH_API_BASE_URL = /__neck_dash/api",
-    "NUXT_PUBLIC_SIGNOZ_BASE_URL = /__signoz",
-    "NUXT_NECKDASH_API_INTERNAL_BASE_URL = http://neckdash:8080",
     "SIGNOZ_BASE_URL = /__signoz",
     `SIGNOZ_EXTERNAL_URL = https://${domain}/__signoz`,
     "SIGNOZ_OTLP_TRACES_URL = http://signoz-otel-collector:4318/v1/traces",
@@ -660,13 +611,9 @@ function neckDashKomodoEnvLines() {
     `SIGNOZ_USER_ROOT_EMAIL = ${signozRootEmail}`,
     `SIGNOZ_USER_ROOT_PASSWORD = ${signozRootPassword}`,
     `SIGNOZ_USER_ROOT_ORG_NAME = ${signozRootOrgName}`,
-    "NECKDASH_KOMODO_URL = [[NECKDASH_KOMODO_URL]]",
-    "NECKDASH_KOMODO_API_KEY = [[NECKDASH_KOMODO_API_KEY]]",
-    "NECKDASH_KOMODO_API_SECRET = [[NECKDASH_KOMODO_API_SECRET]]",
     `PROD_PLATFORM = ${prodPlatform}`,
     "",
     `NECKDASH_IMAGE = ${defaultNeckDashImage}`,
-    `NECKDASH_UI_IMAGE = ${defaultNeckDashUIImage}`,
     `SIGNOZ_IMAGE = ${defaultSignozImage}`,
     `SIGNOZ_COLLECTOR_IMAGE = ${defaultSignozCollectorImage}`,
     `SIGNOZ_CLICKHOUSE_IMAGE = ${defaultSignozClickHouseImage}`,

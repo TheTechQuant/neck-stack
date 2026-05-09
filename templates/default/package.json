@@ -23,11 +23,10 @@
     "mcp:encore": "encore mcp run --app=__APP_ID__",
     "mcp:encore:start": "encore mcp start --app=__APP_ID__",
     "komodo:setup": "zx scripts/setup-komodo.mjs",
-    "deploy:komodo": "zx scripts/deploy-komodo.mjs",
     "migrate:prod": "node scripts/run-migrations.mjs",
-    "docker:backend": "zx scripts/build-backend-image.mjs",
-    "docker:frontend": "zx scripts/build-frontend-image.mjs",
-    "docker:migrations": "zx scripts/build-migrations-image.mjs",
+    "docker:backend": "zx scripts/build-image.mjs backend",
+    "docker:frontend": "zx scripts/build-image.mjs frontend",
+    "docker:migrations": "zx scripts/build-image.mjs migrations",
     "docker:all": "pnpm infra:encore && pnpm docker:backend && pnpm docker:frontend && pnpm docker:migrations"
   },
   "devDependencies": {

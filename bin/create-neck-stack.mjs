@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { parse } from "@bomb.sh/args";
 import { cancel, confirm, intro, isCancel, log, outro, password, text } from "@clack/prompts";
-import bcrypt from "bcryptjs";
 import chalk from "chalk";
 
 $.verbose = false;
@@ -17,8 +16,6 @@ const templateDir = path.join(rootDir, "templates", "default");
 const stringOptions = [
   "name",
   "domain",
-  "neckdash-user",
-  "neckdash-password",
   "gitlab-project",
   "registry",
   "prod-platform",
@@ -53,9 +50,7 @@ Usage:
 
 Options:
   --name <name>                         Package/app display name when target path differs
-  --domain <domain>                     Public app domain; /api and /__neck_dash are routed on this host
-  --neckdash-user <user>                Basic-auth user for NECK Dash
-  --neckdash-password <value>           Basic-auth password for NECK Dash
+  --domain <domain>                     Public app domain; /api and /__signoz are routed on this host
   --gitlab-project <path>               GitLab project path, e.g. group/app
   --registry <registry>                 Container image registry/repository
   --prod-platform <platform>            linux/amd64, linux/arm64, amd64, or arm64
@@ -127,8 +122,6 @@ function parseCliArgs(argv) {
       komodoServer: parsed["komodo-server"],
       komodoUrl: parsed["komodo-url"],
       name: parsed.name,
-      neckdashPassword: parsed["neckdash-password"],
-      neckdashUser: parsed["neckdash-user"],
       prodPlatform: parsed["prod-platform"],
       registry: parsed.registry,
       runDirectory: parsed["run-directory"],
@@ -448,7 +441,6 @@ async function main() {
     section("Domains");
   }
   const domain = await promptValue("App domain", options.domain, defaultDomain, yes);
-  const neckDashUser = await promptValue("NECK Dash user for /__neck_dash", options.neckdashUser, "admin", yes);
 
   if (!yes) {
     section("Deployment");
@@ -489,8 +481,6 @@ async function main() {
   const shouldInstall = options.install !== false;
   const shouldGit = options.git !== false;
   const force = options.force === true;
-  const neckDashPassword = options.neckdashPassword || secretToken();
-  const neckDashPasswordHash = bcrypt.hashSync(neckDashPassword, 12);
   const signozRootEmail = `admin@${domain || `${appSlug}.local`}`;
   const signozRootPassword = secretToken();
 
@@ -506,10 +496,6 @@ async function main() {
     POSTGRES_USER: postgresIdent(appSlug),
     POSTGRES_PASSWORD_DEFAULT: secretToken(),
     REDIS_PASSWORD_DEFAULT: secretToken(),
-    NECK_DASH_PASSWORD_DEFAULT: neckDashPassword,
-    NECK_DASH_PASSWORD_HASH_DEFAULT: neckDashPasswordHash,
-    NECK_DASH_PASSWORD_HASH_DEFAULT_COMPOSE: neckDashPasswordHash.replaceAll("$", "$$$$"),
-    NECK_DASH_USER: neckDashUser,
     TRACE_AUTH_KEY_DEFAULT: secretToken(),
     SIGNOZ_JWT_SECRET_DEFAULT: secretToken(),
     SIGNOZ_ROOT_EMAIL_DEFAULT: signozRootEmail,
@@ -577,7 +563,7 @@ async function main() {
   if (!shouldInstall) console.log(`  ${chalk.cyan("pnpm dlx zx scripts/install.mjs")}`);
   console.log(`  ${chalk.cyan("pnpm check")}`);
   console.log(`  ${chalk.cyan("pnpm dev")}`);
-  outro("Operator settings, NECK Dash Basic Auth, and SigNoz root credentials were written to .env.");
+  outro("Operator settings and SigNoz root credentials were written to .env.");
 }
 
 main().catch((err) => {

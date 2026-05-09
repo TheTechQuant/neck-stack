@@ -1,17 +1,6 @@
 :8080 {
 	encode zstd gzip
 
-	@neckDashProtected {
-		path /__neck_dash /__neck_dash/*
-		not path /__neck_dash/api/trace
-	}
-	basic_auth @neckDashProtected {
-		{$NECK_DASH_USER} {$NECK_DASH_PASSWORD_HASH}
-	}
-
-	@neckDashRoot path /__neck_dash
-	redir @neckDashRoot /__neck_dash/ 308
-
 	@signozRoot path /__signoz
 	redir @signozRoot /__signoz/ 308
 
@@ -22,16 +11,13 @@
 		}
 	}
 
-	handle_path /__neck_dash/api/* {
-		reverse_proxy neckdash:8080
-	}
-
 	handle /__signoz/* {
 		reverse_proxy signoz:8080
 	}
 
-	handle /__neck_dash/* {
-		reverse_proxy neckdash-ui:3000
+	@neckDashDisabled path /__neck_dash /__neck_dash/*
+	handle @neckDashDisabled {
+		respond "not found" 404
 	}
 
 	handle_path /api/* {

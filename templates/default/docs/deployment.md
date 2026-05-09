@@ -2,7 +2,7 @@
 
 Production deploys are designed for a server managed by Komodo.
 
-The server runs one shared Caddy Docker Proxy ingress on ports `80/443` and one shared NECK Dash observability stack. Each NECK app stack runs its own internal Caddy on the shared `neck-ingress` Docker network and declares its public domain through Docker labels. This lets multiple NECK apps share one server without port conflicts or duplicate dashboard/storage containers.
+The server runs one shared Caddy Docker Proxy ingress on ports `80/443` and one shared SigNoz/NECK Dash adapter stack. Each NECK app stack runs its own internal Caddy on the shared `neck-ingress` Docker network and declares its public domain through Docker labels. This lets multiple NECK apps share one server without port conflicts or duplicate observability/storage containers.
 
 ## First Deploy
 
@@ -45,7 +45,7 @@ For a normal GitLab deploy, this is the whole path:
 
    ```text
    https://__DOMAIN__
-   https://__DOMAIN__/__neck_dash
+   https://__DOMAIN__/__signoz
    ```
 
 The server must be able to pull your container images. For private registries, configure Docker registry auth on the Komodo server or in Komodo before the first deploy.
@@ -69,11 +69,11 @@ NECK intentionally keeps deploy configuration compact:
 - `.env.example`: committed reference with the same small key set and no generated secret values.
 - `deploy/compose.yaml`: generated runtime stack.
 - `deploy/komodo/resources.toml`: generated Komodo import.
-- `deploy/neckdash/compose.yaml`: shared per-server NECK Dash plus SigNoz/ClickHouse observability stack.
-- `deploy/neckdash/resources.toml`: Komodo import for the shared server dashboard stack.
+- `deploy/neckdash/compose.yaml`: shared per-server NECK Dash adapter plus SigNoz/ClickHouse observability stack.
+- `deploy/neckdash/resources.toml`: Komodo import for the shared server observability stack.
 - `deploy/encore/infra.prod.json`: generated Encore self-hosted infra config.
 - `deploy/encore/runtime.prod.pb`: generated Encore runtime config used by the production container, including NECK Dash trace export.
-- `deploy/encore/meta.json`: generated Encore metadata for NECK Dash catalog views.
+- `deploy/encore/meta.json`: generated Encore metadata.
 
 There is no `infra.prod.example.json`. The generated `infra.prod.json` and `runtime.prod.pb` are explicit and reproducible from `encore debug meta -f json`, so hand-maintained examples would drift. If Encore metadata cannot be produced, deployment config generation fails instead of guessing from source.
 
@@ -110,7 +110,7 @@ If you have a Komodo API key and secret, use the generated setup script instead 
 pnpm komodo:setup
 ```
 
-It uses generated defaults for `KOMODO_URL` and `KOMODO_SERVER`, then asks for `KOMODO_API_KEY` and `KOMODO_API_SECRET` the first time and saves them to `.env`. Override `KOMODO_URL` or `KOMODO_SERVER` only if the Komodo target changes after scaffolding. By default it leaves an existing shared `neckdash-sync` unchanged so one app cannot overwrite another app's shared dashboard setup, but it still merges this app's trace auth key into the shared `neckdash` stack. Use `pnpm komodo:setup -- --update-shared` only when you intentionally want to update the shared NECK Dash Resource Sync.
+It uses generated defaults for `KOMODO_URL` and `KOMODO_SERVER`, then asks for `KOMODO_API_KEY` and `KOMODO_API_SECRET` the first time and saves them to `.env`. Override `KOMODO_URL` or `KOMODO_SERVER` only if the Komodo target changes after scaffolding. By default it leaves an existing shared `neckdash-sync` unchanged so one app cannot overwrite another app's shared observability setup, but it still merges this app's trace auth key into the shared `neckdash` stack. Use `pnpm komodo:setup -- --update-shared` only when you intentionally want to update the shared observability Resource Sync.
 
 The generated stack uses `deploy/compose.yaml`, enables Komodo stack image polling, and redeploys the whole app stack when `:prod` images change:
 
@@ -137,7 +137,7 @@ Services are provisioned only when used:
 - No `CronJob`: no cron runner actions.
 - `Bucket` resources are detected but not provisioned.
 
-NECK Dash does not run inside each app stack. The shared `neckdash` stack runs the published `neckdash` and `neckdash-ui` images plus SigNoz, the SigNoz OTel collector, and ClickHouse. App stacks connect to it through `neck-ingress`, route `/__neck_dash` to it, and post Encore traces, structured logs, and Prometheus remote-write metrics to the shared `neckdash` service on the private network.
+NECK Dash does not run inside each app stack. The shared `neckdash` stack runs the published `neckdash` adapter image plus SigNoz, the SigNoz OTel collector, and ClickHouse. App stacks connect to it through `neck-ingress`, route `/__signoz` to SigNoz, and post Encore traces, structured logs, and Prometheus remote-write metrics to the shared `neckdash` service on the private network.
 
 Object storage should be external. Use S3, Cloudflare R2, GCS, or another managed provider and wire the Encore infra config accordingly.
 
@@ -148,49 +148,31 @@ Generated Compose defaults let a new stack boot without hand-writing database/ca
 Relevant variables:
 
 - `NECK_INGRESS_NETWORK`, defaults to `neck-ingress`; every app on the same server should use the same value.
-- `NECKDASH_APPS_ROOT`, set on the shared `neckdash` stack; it should point at the parent directory containing app run directories so Dash can read `deploy/encore/meta.json` and `docs/openapi.json`.
 - `NECKDASH_TRACE_AUTH_KEYS`, set on the shared `neckdash` stack; use comma/newline-separated `app_id=key` entries when multiple apps run on the same server.
-- `NECKDASH_KOMODO_URL`, `NECKDASH_KOMODO_API_KEY`, and `NECKDASH_KOMODO_API_SECRET`, set on the shared `neckdash` stack when you want the Settings tab to update backend secrets and frontend variables through Komodo. `pnpm komodo:setup` creates these Komodo variables automatically.
 - `POSTGRES_PASSWORD`, only when SQL databases exist.
 - `REDIS_PASSWORD`, only when cache exists.
 - Encore `secret(...)` declarations, exposed to the container by exact secret name and backed by app-prefixed Komodo variables such as `APPID_SECRET_NAME` so multiple apps can safely reuse common secret names on one server.
-- `NECK_DASH_PASSWORD_HASH`, for `https://DOMAIN/__neck_dash`.
 - The generated trace signing key, written into `deploy/encore/infra.prod.json` and `deploy/encore/runtime.prod.pb` at build time and mirrored in the shared `neckdash` stack's `NECKDASH_TRACE_AUTH_KEYS`. It is not required as a backend runtime environment variable.
 - `NECKDASH_METRICS_WRITE_URL`, used by Encore's Prometheus remote-write metrics exporter. The generated default points at the shared private NECK Dash metrics adapter.
 - `SIGNOZ_OTLP_TRACES_URL`, `SIGNOZ_OTLP_LOGS_URL`, and `SIGNOZ_OTLP_METRICS_URL`, set on the shared `neckdash` stack. NECK Dash forwards validated Encore trace streams, extracted structured logs, and converted Prometheus remote-write metrics to these private SigNoz collector endpoints.
 
-To generate a new Caddy-compatible NECK Dash hash:
+## Observability
 
-```bash
-docker run --rm caddy:2.10-alpine caddy hash-password --plaintext 'new-password'
-```
+The shared server ingress exposes `https://DOMAIN/__signoz` for the real SigNoz UI. SigNoz uses its own root-user login. `/__neck_dash/api/trace` remains reachable by backend trace exporters and is still validated by Encore trace auth:
 
-Set the output as `NECK_DASH_PASSWORD_HASH`.
-
-## NECK Dash
-
-The shared server ingress exposes `https://DOMAIN/__neck_dash` for NECK Dash and `https://DOMAIN/__signoz` for the real SigNoz UI. The app's internal Caddy protects NECK Dash with HTTP Basic Auth, while SigNoz uses its own root-user login. The only Basic Auth exception under NECK Dash is `/__neck_dash/api/trace`, which must remain reachable by backend trace exporters and is still validated by Encore trace auth:
-
-- `NECK_DASH_USER`, default `admin`.
-- `NECK_DASH_PASSWORD_HASH`, generated at scaffold time.
 - `SIGNOZ_USER_ROOT_EMAIL`, `SIGNOZ_USER_ROOT_PASSWORD`, and `SIGNOZ_USER_ROOT_ORG_NAME`, generated at scaffold time for the SigNoz login.
 
 The generated Encore infra config enables the official Prometheus remote-write metrics provider with `NECKDASH_METRICS_WRITE_URL`. That path carries Encore runtime metrics such as request counters and memory gauges, plus any custom metrics declared with `encore.dev/metrics`. NECK Dash decodes the Prometheus remote-write v1 payload, adds app metadata, and forwards OTLP metrics to the shared SigNoz collector.
 
 NECK Dash also ships a trace ingestion adapter that validates Encore trace signatures, converts Encore trace streams to OpenTelemetry JSON, and forwards them to SigNoz. Production backends post to `http://neckdash:8080/trace` on the private `neck-ingress` network. The public `/__neck_dash/api/trace` route remains available for single-domain ingestion; app Caddy copies `X-Encore-Auth` into `X-Neckdash-Trace-Auth` and strips the reserved header before proxying to NECK Dash. Structured `encore.dev/log` events in those trace streams are emitted once as OTLP logs with `encore.app_id`, `trace_id`, and `span_id` preserved for correlation in SigNoz.
 
-The dashboard discovers app catalogs by scanning `NECKDASH_APPS_ROOT` for `*/deploy/encore/meta.json` and matching `docs/openapi.json` beside each app. It exposes an app picker, persists the selected view locally, and scopes Flow, Service Catalog, OpenAPI, and Settings views to the selected app. Trace, log, metric, dashboard, and alert exploration is handled by SigNoz under `/__signoz`.
-
-The Settings tab is enabled when `NECKDASH_KOMODO_URL`, `NECKDASH_KOMODO_API_KEY`, and `NECKDASH_KOMODO_API_SECRET` are present on the shared stack. It stores backend `secret(...)` values as app-prefixed Komodo secret variables, writes frontend `NUXT_PUBLIC_` variables into the app stack environment, and can redeploy the app stack after a save.
-
 Production containers are generated with Komodo-safe Encore metadata and `K_SERVICE`, `K_REVISION`, and `K_POD` labels, so the backend should not run through Encore's `CLOUD_LOCAL` metadata fallback. If `CLOUD_LOCAL` appears in production logs, regenerate config with `pnpm infra:encore` and redeploy the backend image plus `deploy/encore/runtime.prod.pb`.
 
-For high-volume apps, NECK Dash avoids custom exploratory reads on trace/log/metric storage. SigNoz and ClickHouse own those hot query paths; NECK Dash only handles catalog metadata, Flow metadata, settings, and authenticated trace/log ingestion.
+For high-volume apps, SigNoz and ClickHouse own trace/log/metric querying. NECK Dash only handles authenticated trace/log ingestion and metric forwarding.
 
 Default images:
 
 - `ghcr.io/thetechquant/neck-stack/neckdash:latest`
-- `ghcr.io/thetechquant/neck-stack/neckdash-ui:latest`
 - `signoz/signoz:v0.122.0`
 - `signoz/signoz-otel-collector:v0.144.3`
 - `clickhouse/clickhouse-server:25.5.6`
@@ -244,15 +226,4 @@ The workflow is generated at `.github/workflows/ci.yml`.
 
 ## Manual Deploy
 
-Normal deploys do not need manual commands: CI pushes `:prod` images and Komodo polling redeploys the stack. To force an immediate deploy through the Komodo API:
-
-```bash
-pnpm deploy:komodo
-```
-
-Useful modes:
-
-```bash
-pnpm deploy:komodo -- --force
-pnpm deploy:komodo -- --dry-run
-```
+Normal deploys do not need manual commands: CI pushes `:prod` images and Komodo polling redeploys the stack. To force an immediate deploy, use Komodo's Deploy action for the app stack.

@@ -32,13 +32,10 @@ await runStep("Check scripts", async () => {
   await $`node --check scripts/lib/runtime-config.mjs`;
   await $`node --check scripts/lib/signoz-config.mjs`;
   await $`node --check scripts/generate-encore-config.mjs`;
-  await $`node --check scripts/build-backend-image.mjs`;
-  await $`node --check scripts/build-frontend-image.mjs`;
-  await $`node --check scripts/build-migrations-image.mjs`;
+  await $`node --check scripts/build-image.mjs`;
   await $`node --check scripts/run-migrations.mjs`;
   await $`node --check scripts/install.mjs`;
   await $`node --check scripts/setup-komodo.mjs`;
-  await $`node --check scripts/deploy-komodo.mjs`;
   await $`node --check scripts/encore-ci-auth.mjs`;
   await $`node --check scripts/test-backend-ci.mjs`;
   await $`node --check scripts/generate-client.mjs`;

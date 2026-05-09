@@ -10,8 +10,6 @@ services:
       caddy.reverse_proxy: "{{upstreams 8080}}"
     environment:
       DOMAIN: ${DOMAIN:-__DOMAIN__}
-      NECK_DASH_USER: ${NECK_DASH_USER:-__NECK_DASH_USER__}
-      NECK_DASH_PASSWORD_HASH: ${NECK_DASH_PASSWORD_HASH:-__NECK_DASH_PASSWORD_HASH_DEFAULT_COMPOSE__}
     expose:
       - "8080"
     volumes:

@@ -372,16 +372,6 @@ console.log(`\n${chalk.bold.cyan("Set up Komodo resources")}`);
 await ensureIngress();
 
 if (!skipShared) {
-  await upsertVariable("NECKDASH_KOMODO_URL", komodoUrl, {
-    description: "Komodo Core URL used by NECK Dash to manage app secrets and frontend variables.",
-  });
-  await upsertVariable("NECKDASH_KOMODO_API_KEY", komodoApiKey, {
-    description: "Komodo API key used by NECK Dash.",
-  });
-  await upsertVariable("NECKDASH_KOMODO_API_SECRET", komodoApiSecret, {
-    secret: true,
-    description: "Komodo API secret used by NECK Dash.",
-  });
   const sharedContents = await readFile("deploy/neckdash/resources.toml");
   const changed = await upsertSync(sharedSyncName, sharedContents, { updateExisting: updateShared });
   await runSync(sharedSyncName, changed);

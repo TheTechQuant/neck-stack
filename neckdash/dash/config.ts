@@ -23,20 +23,3 @@ export function stringValue(value: unknown, fallback = "") {
   const text = String(value);
   return text.length > 0 ? text : fallback;
 }
-
-export function safeJSONParse<T>(value: string | Buffer | undefined): T | undefined {
-  if (!value || value.length === 0) return undefined;
-  try {
-    return JSON.parse(value.toString()) as T;
-  } catch {
-    return undefined;
-  }
-}
-
-export function sortBy<T>(values: T[], key: (value: T) => string | number) {
-  return values.sort((a, b) => {
-    const av = key(a);
-    const bv = key(b);
-    return av < bv ? -1 : av > bv ? 1 : 0;
-  });
-}
