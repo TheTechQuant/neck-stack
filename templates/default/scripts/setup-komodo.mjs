@@ -192,6 +192,10 @@ async function getResourceSync(name) {
   }
 }
 
+function resourceId(resource) {
+  return resource?.id || resource?._id?.$oid;
+}
+
 async function upsertSync(name, contents, { updateExisting = true } = {}) {
   if (dryRun) {
     console.log(chalk.yellow(`[dry-run] create/update Resource Sync ${name}`));
@@ -206,7 +210,7 @@ async function upsertSync(name, contents, { updateExisting = true } = {}) {
 
   if (existing) {
     await komodoWrite("UpdateResourceSync", {
-      id: existing.id,
+      id: resourceId(existing),
       config: syncConfig(contents),
     });
     console.log(chalk.green(`Updated Resource Sync ${name}`));
