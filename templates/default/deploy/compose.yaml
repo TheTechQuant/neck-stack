@@ -47,11 +47,13 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - unset ENCORE_INFRA_CONFIG_PATH; exec node --enable-source-maps /workspace/backend/.encore/build/combined/combined/main.mjs
+      - export K_POD="${K_POD:-$(hostname)}"; unset ENCORE_INFRA_CONFIG_PATH; exec node --enable-source-maps /workspace/.encore/build/combined/combined/main.mjs
     environment:
       PORT: 8080
       ENCORE_RUNTIME_CONFIG_PATH: /encore/runtime.prod.pb
-      VICTORIA_METRICS_REMOTE_WRITE_URL: ${VICTORIA_METRICS_REMOTE_WRITE_URL:-http://victoria-metrics:8428/api/v1/write?extra_label=app_id=__APP_ID__}
+      K_SERVICE: ${K_SERVICE:-__APP_ID__-backend}
+      K_REVISION: ${K_REVISION:-__APP_ID__-production}
+      SIGNOZ_PROM_REMOTE_WRITE_URL: ${SIGNOZ_PROM_REMOTE_WRITE_URL:-http://signoz-prom-bridge:19291/api/v1/write}
     expose:
       - "8080"
     volumes:
@@ -64,6 +66,23 @@ services:
       interval: 15s
       timeout: 5s
       retries: 8
+
+  signoz-prom-bridge:
+    image: ${OTEL_COLLECTOR_IMAGE:-otel/opentelemetry-collector-contrib:0.140.1}
+    platform: ${PROD_PLATFORM:-__PROD_PLATFORM__}
+    restart: unless-stopped
+    command: ["--config=/etc/otel/config.yaml"]
+    environment:
+      APP_ID: __APP_ID__
+      APP_ENV: production
+      SIGNOZ_OTLP_HTTP_ENDPOINT: ${SIGNOZ_OTLP_HTTP_ENDPOINT:-http://signoz-otel-collector:4318}
+    expose:
+      - "19291"
+    volumes:
+      - ./signoz/prom-bridge.yaml:/etc/otel/config.yaml:ro
+    networks:
+      - default
+      - neck-ingress
 
 networks:
   neck-ingress:

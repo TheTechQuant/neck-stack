@@ -1,7 +1,7 @@
 # Shared NECK Dash Komodo stack. Import once per server, not once per app.
 [[stack]]
 name = "neckdash"
-description = "Shared per-server NECK Dash and Victoria observability stack"
+description = "Shared per-server NECK Dash and SigNoz observability stack"
 tags = ["neck", "observability"]
 deploy = true
 
@@ -19,18 +19,15 @@ NECK_INGRESS_NETWORK = neck-ingress
 NECKDASH_APPS_ROOT = /opt/stacks
 NECKDASH_TRACE_AUTH_KEYS = __APP_ID__=__TRACE_AUTH_KEY_DEFAULT__
 NECKDASH_REQUIRE_TRACE_AUTH = true
-NECKDASH_TRACE_SERVICE_FANOUT_LIMIT = 32
 NUXT_APP_BASE_URL = /__neck_dash/
 NUXT_PUBLIC_NECKDASH_API_BASE_URL = /__neck_dash/api
+NUXT_PUBLIC_SIGNOZ_BASE_URL = /__neck_dash/signoz
 NUXT_NECKDASH_API_INTERNAL_BASE_URL = http://neckdash:8080
-VICTORIA_TRACES_OTLP_URL = http://victoria-traces:10428/insert/opentelemetry/v1/traces
-VICTORIA_TRACES_QUERY_URL = http://victoria-traces:10428/select/jaeger
-VICTORIA_TRACES_RETENTION = 30d
-VICTORIA_METRICS_QUERY_URL = http://victoria-metrics:8428/api/v1/query
-VICTORIA_METRICS_RETENTION = 90d
-VICTORIA_LOGS_INSERT_URL = http://victoria-logs:9428/insert/jsonline?_stream_fields=app_id,env_id,service,level&_time_field=timestamp&_msg_field=message
-VICTORIA_LOGS_QUERY_URL = http://victoria-logs:9428/select/logsql/query
-VICTORIA_LOGS_RETENTION = 30d
+SIGNOZ_BASE_URL = /__neck_dash/signoz
+SIGNOZ_EXTERNAL_URL = https://__DOMAIN__/__neck_dash/signoz
+SIGNOZ_OTLP_TRACES_URL = http://signoz-otel-collector:4318/v1/traces
+SIGNOZ_OTLP_LOGS_URL = http://signoz-otel-collector:4318/v1/logs
+SIGNOZ_TOKENIZER_JWT_SECRET = __SIGNOZ_JWT_SECRET_DEFAULT__
 NECKDASH_KOMODO_URL = [[NECKDASH_KOMODO_URL]]
 NECKDASH_KOMODO_API_KEY = [[NECKDASH_KOMODO_API_KEY]]
 NECKDASH_KOMODO_API_SECRET = [[NECKDASH_KOMODO_API_SECRET]]
@@ -38,9 +35,10 @@ PROD_PLATFORM = __PROD_PLATFORM__
 
 NECKDASH_IMAGE = ghcr.io/thetechquant/neck-stack/neckdash:latest
 NECKDASH_UI_IMAGE = ghcr.io/thetechquant/neck-stack/neckdash-ui:latest
-VICTORIA_TRACES_IMAGE = victoriametrics/victoria-traces:latest
-VICTORIA_METRICS_IMAGE = victoriametrics/victoria-metrics:latest
-VICTORIA_LOGS_IMAGE = victoriametrics/victoria-logs:latest
+SIGNOZ_IMAGE = signoz/signoz:v0.122.0
+SIGNOZ_COLLECTOR_IMAGE = signoz/signoz-otel-collector:v0.144.3
+SIGNOZ_CLICKHOUSE_IMAGE = clickhouse/clickhouse-server:25.5.6
+SIGNOZ_ZOOKEEPER_IMAGE = signoz/zookeeper:3.7.1
 """
 
 [[procedure]]

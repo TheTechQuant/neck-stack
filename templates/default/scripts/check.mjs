@@ -29,6 +29,8 @@ await runStep("Check scripts", async () => {
   await $`node --check scripts/lib/encore-resources.mjs`;
   await $`node --check scripts/lib/env.mjs`;
   await $`node --check scripts/lib/prod-platform.mjs`;
+  await $`node --check scripts/lib/runtime-config.mjs`;
+  await $`node --check scripts/lib/signoz-config.mjs`;
   await $`node --check scripts/generate-encore-config.mjs`;
   await $`node --check scripts/build-backend-image.mjs`;
   await $`node --check scripts/build-frontend-image.mjs`;

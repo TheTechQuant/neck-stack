@@ -1,78 +1,19 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
-import { stringValue, victoriaLogsInsertURL, victoriaLogsQueryURL, victoriaLogsTailURL } from "./config";
-import type { LogEntry, LogListParams } from "./types";
-import type { TraceEvent, TraceRequestMeta, SpanBuilder, LogField } from "./traceTypes";
-import { errorMessage, hexSpanID, hexTraceID } from "./traceUtil";
+import { signozOTLPLogsURL, stringValue } from "./config";
+import type { OTLPAttribute, TraceEvent, TraceRequestMeta, SpanBuilder, LogField } from "./traceTypes";
+import { boolAttr, doubleAttr, errorMessage, hexSpanID, hexTraceID, intAttr, stringAttr, unixNano } from "./traceUtil";
 
-type VictoriaLogEntry = Record<string, unknown>;
+type StructuredLogEntry = Record<string, unknown>;
 
 const logFieldNamePattern = /[^A-Za-z0-9_.-]+/g;
 
-export async function listLogEntries(params: LogListParams) {
-  const limit = normalizeLimit(params.limit, 200, 500);
-  const query = buildLogQuery(params, false);
-  const values = new URLSearchParams({ query, limit: String(limit) });
-  const response = await fetch(victoriaLogsQueryURL(), {
-    method: "POST",
-    body: values,
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-  });
-  if (!response.ok) throw new Error(`VictoriaLogs query failed with HTTP ${response.status}`);
-  const logs = decodeVictoriaLogRows(await response.text()).sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  return { query, logs };
-}
-
-export async function tailLogs(req: IncomingMessage, res: ServerResponse) {
-  if (req.method !== "GET") {
-    res.writeHead(405);
-    res.end("method not allowed");
-    return;
-  }
-
-  const url = new URL(req.url || "/", "http://localhost");
-  const params: LogListParams = {
-    app: url.searchParams.get("app") || "",
-    query: url.searchParams.get("query") || "",
-    service: url.searchParams.get("service") || "",
-    level: url.searchParams.get("level") || "",
-    traceId: url.searchParams.get("traceId") || "",
-  };
-  if (!hasLogFilter(params)) {
-    res.writeHead(400);
-    res.end("provide query, service, level, or traceId before live tailing logs");
-    return;
-  }
-
-  const values = new URLSearchParams({ query: buildLogQuery(params, true) });
-  for (const key of ["start_offset", "refresh_interval"]) {
-    const value = url.searchParams.get(key);
-    if (value) values.set(key, value);
-  }
-  const upstream = await fetch(victoriaLogsTailURL(), {
-    method: "POST",
-    body: values,
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-  });
-  if (!upstream.ok || !upstream.body) {
-    res.writeHead(502);
-    res.end(`VictoriaLogs tail failed with HTTP ${upstream.status}`);
-    return;
-  }
-  res.writeHead(200, { "content-type": "application/x-ndjson" });
-  for await (const chunk of upstream.body as any) {
-    res.write(chunk);
-  }
-  res.end();
-}
-
 export function extractLogEntries(meta: TraceRequestMeta, events: TraceEvent[], builders: Map<string, SpanBuilder>) {
-  const entries: VictoriaLogEntry[] = [];
+  const entries: StructuredLogEntry[] = [];
   for (const ev of events) {
     const message = ev.spanEvent?.logMessage;
     if (!message) continue;
     const spanID = hexSpanID(ev.spanID);
     const builder = builders.get(spanID);
-    const entry: VictoriaLogEntry = {
+    const entry: StructuredLogEntry = {
       timestamp: ev.eventTime.toISOString(),
       message: message.msg,
       level: logLevelName(message.level),
@@ -94,65 +35,84 @@ export function extractLogEntries(meta: TraceRequestMeta, events: TraceEvent[], 
   return entries;
 }
 
-export async function postVictoriaLogs(entries: VictoriaLogEntry[]) {
+export async function postOTLPLogs(entries: StructuredLogEntry[]) {
   if (entries.length === 0) return;
-  const body = entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
-  const response = await fetch(victoriaLogsInsertURL(), {
+  const response = await fetch(signozOTLPLogsURL(), {
     method: "POST",
-    body,
-    headers: { "content-type": "application/stream+json" },
+    body: JSON.stringify(toOTLPLogs(entries)),
+    headers: { "content-type": "application/json" },
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
 }
 
-function decodeVictoriaLogRows(text: string): LogEntry[] {
-  return text.split(/\r?\n/).filter((line) => line.trim()).map((line) => victoriaRowToLogEntry(JSON.parse(line)));
-}
-
-function victoriaRowToLogEntry(row: Record<string, unknown>): LogEntry {
-  const fields: Record<string, string> = {};
-  for (const [key, value] of Object.entries(row)) {
-    if (["_time", "_msg", "_stream", "timestamp", "message", "level", "service", "endpoint", "trace_id", "span_id"].includes(key)) continue;
-    fields[key] = stringValue(value);
+function toOTLPLogs(entries: StructuredLogEntry[]) {
+  const groups = new Map<string, StructuredLogEntry[]>();
+  for (const entry of entries) {
+    const key = `${entry.app_id || ""}\x00${entry.env_id || ""}\x00${entry.service || "unknown"}`;
+    groups.set(key, [...(groups.get(key) ?? []), entry]);
   }
   return {
-    timestamp: stringValue(row._time, stringValue(row.timestamp)),
-    message: stringValue(row._msg, stringValue(row.message)),
-    level: stringValue(row.level),
-    service: stringValue(row.service),
-    endpoint: stringValue(row.endpoint),
-    traceId: stringValue(row.trace_id),
-    spanId: stringValue(row.span_id),
-    fields,
+    resourceLogs: [...groups.values()].map((logs) => {
+      const first = logs[0] ?? {};
+      return {
+        resource: {
+          attributes: [
+            stringAttr("service.name", stringValue(first.service, "unknown")),
+            stringAttr("deployment.environment", stringValue(first.env_id, "production")),
+            stringAttr("encore.app_id", stringValue(first.app_id)),
+            stringAttr("encore.env_id", stringValue(first.env_id)),
+            stringAttr("encore.deploy_id", stringValue(first.deploy_id)),
+            stringAttr("encore.app_commit", stringValue(first.app_commit)),
+          ],
+        },
+        scopeLogs: [{
+          scope: { name: "neckdash.encore-adapter", version: "0.3.0" },
+          logRecords: logs.map(toOTLPLogRecord),
+        }],
+      };
+    }),
   };
 }
 
-export function buildLogQuery(params: LogListParams, tail: boolean) {
-  const hours = normalizeLimit(params.hours, 1, 720);
-  const parts: string[] = [];
-  if (!tail) parts.push(`_time:${hours}h`);
-  if (String(params.query || "").trim()) parts.push(quoteLogsQLString(String(params.query).trim()));
-  if (String(params.service || "").trim()) parts.push(logsQLExact("service", String(params.service).trim()));
-  if (String(params.level || "").trim()) parts.push(logsQLExact("level", String(params.level).trim().toLowerCase()));
-  if (String(params.traceId || "").trim()) parts.push(logsQLExact("trace_id", String(params.traceId).trim()));
-  if (String(params.app || "").trim()) parts.push(logsQLExact("app_id", String(params.app).trim()));
-  return parts.length > 0 ? parts.join(" AND ") : "*";
+function toOTLPLogRecord(entry: StructuredLogEntry) {
+  const timestamp = new Date(stringValue(entry.timestamp));
+  const attributes: OTLPAttribute[] = [];
+  for (const [key, value] of Object.entries(entry)) {
+    if (["timestamp", "message", "level", "trace_id", "span_id"].includes(key)) continue;
+    attributes.push(logAttribute(key, value));
+  }
+  return {
+    timeUnixNano: String(unixNano(Number.isFinite(timestamp.getTime()) ? timestamp : new Date())),
+    severityText: stringValue(entry.level, "trace").toUpperCase(),
+    severityNumber: otelSeverityNumber(stringValue(entry.level, "trace")),
+    traceId: stringValue(entry.trace_id),
+    spanId: stringValue(entry.span_id),
+    body: { stringValue: stringValue(entry.message) },
+    attributes,
+  };
 }
 
-function hasLogFilter(params: LogListParams) {
-  return Boolean(params.app || params.query || params.service || params.level || params.traceId);
+function logAttribute(key: string, value: unknown): OTLPAttribute {
+  if (typeof value === "boolean") return boolAttr(key, value);
+  if (typeof value === "number" && Number.isFinite(value)) return Number.isInteger(value) ? intAttr(key, value) : doubleAttr(key, value);
+  return stringAttr(key, stringValue(value));
 }
 
-function logsQLExact(field: string, value: string) {
-  return `${logsQLField(field)}:=${quoteLogsQLString(value)}`;
-}
-
-function logsQLField(field: string) {
-  return /^[A-Za-z_][A-Za-z0-9_.-]*$/.test(field) ? field : quoteLogsQLString(field);
-}
-
-function quoteLogsQLString(value: string) {
-  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\r", "\\r").replaceAll("\t", "\\t")}"`;
+function otelSeverityNumber(level: string) {
+  switch (level.toLowerCase()) {
+    case "trace":
+      return 1;
+    case "debug":
+      return 5;
+    case "info":
+      return 9;
+    case "warn":
+      return 13;
+    case "error":
+      return 17;
+    default:
+      return 1;
+  }
 }
 
 function normalizeLogFieldName(key: string) {
@@ -190,9 +150,4 @@ function logLevelName(level: number) {
     default:
       return "trace";
   }
-}
-
-function normalizeLimit(value: unknown, fallback: number, max: number) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 && parsed <= max ? Math.floor(parsed) : fallback;
 }

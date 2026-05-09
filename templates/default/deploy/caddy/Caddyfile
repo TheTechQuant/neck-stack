@@ -12,6 +12,9 @@
 	@neckDashRoot path /__neck_dash
 	redir @neckDashRoot /__neck_dash/ 308
 
+	@signozRoot path /__neck_dash/signoz
+	redir @signozRoot /__neck_dash/signoz/ 308
+
 	handle /__neck_dash/api/trace {
 		reverse_proxy neckdash:8080 {
 			header_up X-Neckdash-Trace-Auth {http.request.header.X-Encore-Auth}
@@ -21,6 +24,10 @@
 
 	handle_path /__neck_dash/api/* {
 		reverse_proxy neckdash:8080
+	}
+
+	handle /__neck_dash/signoz/* {
+		reverse_proxy signoz:8080
 	}
 
 	handle /__neck_dash/* {

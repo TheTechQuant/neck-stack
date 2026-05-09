@@ -296,11 +296,22 @@ function outputName(templateName) {
   return templateName;
 }
 
+const templateCopyIgnore = new Set([
+  "node_modules",
+  ".nuxt",
+  ".output",
+  "dist",
+  "coverage",
+  ".turbo",
+]);
+
 async function copyTemplate(srcDir, destDir, vars) {
   await fs.ensureDir(destDir);
   const entries = await fs.readdir(srcDir, { withFileTypes: true });
 
   for (const entry of entries) {
+    if (templateCopyIgnore.has(entry.name)) continue;
+
     const src = path.join(srcDir, entry.name);
     const dest = path.join(destDir, outputName(entry.name));
 
@@ -498,6 +509,7 @@ async function main() {
     NECK_DASH_PASSWORD_HASH_DEFAULT_COMPOSE: neckDashPasswordHash.replaceAll("$", "$$$$"),
     NECK_DASH_USER: neckDashUser,
     TRACE_AUTH_KEY_DEFAULT: secretToken(),
+    SIGNOZ_JWT_SECRET_DEFAULT: secretToken(),
     DOMAIN: domain,
     REGISTRY: registry.replace(/\/+$/g, ""),
     PROD_PLATFORM: prodPlatform,

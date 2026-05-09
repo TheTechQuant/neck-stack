@@ -1,45 +1,14 @@
-export type TraceSummary = {
-  traceId: string;
-  service: string;
-  endpoint: string;
-  startedAt: string;
-  durationMs: number;
-  spanCount: number;
-  error: boolean;
-  statusCode: number;
-  environment: string;
-};
+import type { dash } from "~/lib/neckdash-client.gen";
 
-export type SpanSummary = {
-  spanId: string;
-  parentSpanId: string;
-  spanType: string;
-  kind: string;
-  name: string;
-  serviceName: string;
-  endpointName: string;
-  topicName: string;
-  subscriptionName: string;
-  messageId: string;
-  startedAt: string;
-  durationMs: number;
-  statusCode: number;
-  isError: boolean;
-  attributes: Record<string, string>;
-  logs: SpanLog[];
-};
+export type DashboardView = "overview" | "catalog" | "flow" | "settings";
+export type LoadState = "idle" | "loading" | "ready" | "error";
 
-export type TraceEvent = {
-  spanId: string;
-  eventId: string;
-  eventType: string;
-  eventTime: string;
-  eventJson: string;
-};
-
-export type SpanLog = {
-  timestamp: string;
-  level: string;
-  message: string;
-  fields: Record<string, string>;
-};
+export type DashApp = dash.DashApp;
+export type CatalogEndpoint = dash.CatalogEndpoint;
+export type CatalogService = dash.CatalogService;
+export type ConfigResponse = dash.ConfigResponse;
+export type ConfigVariable = dash.ConfigVariable;
+export type ConfigUpdateResponse = dash.ConfigUpdateResponse;
+export type FlowEdge = dash.FlowEdge;
+export type FlowNode = dash.FlowNode;
+export type SamplingResponse = dash.SamplingResponse;

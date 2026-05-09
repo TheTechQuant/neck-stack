@@ -3,6 +3,14 @@ import { fs, path } from "zx";
 import chalk from "chalk";
 import { discoverEncoreResources } from "./lib/encore-resources.mjs";
 import { loadDotEnv } from "./lib/env.mjs";
+import {
+  renderClickHouseClusterXML,
+  renderClickHouseCustomFunctionXML,
+  renderSignozCollectorConfig,
+  renderSignozCollectorOpampConfig,
+  renderSignozPromBridgeConfig,
+} from "./lib/signoz-config.mjs";
+import { encodeRuntimeConfig } from "./lib/runtime-config.mjs";
 
 await loadDotEnv();
 
@@ -17,10 +25,15 @@ const defaultTraceAuthKey = "__TRACE_AUTH_KEY_DEFAULT__";
 const registry = "__REGISTRY__";
 const defaultNeckDashImage = "ghcr.io/thetechquant/neck-stack/neckdash:latest";
 const defaultNeckDashUIImage = "ghcr.io/thetechquant/neck-stack/neckdash-ui:latest";
-const defaultVictoriaTracesImage = "victoriametrics/victoria-traces:latest";
-const defaultVictoriaMetricsImage = "victoriametrics/victoria-metrics:latest";
-const defaultVictoriaLogsImage = "victoriametrics/victoria-logs:latest";
+const defaultSignozImage = "signoz/signoz:v0.122.0";
+const defaultSignozCollectorImage = "signoz/signoz-otel-collector:v0.144.3";
+const defaultSignozClickHouseImage = "clickhouse/clickhouse-server:25.5.6";
+const defaultSignozZookeeperImage = "signoz/zookeeper:3.7.1";
+const defaultOtelCollectorImage = "otel/opentelemetry-collector-contrib:0.140.1";
+const defaultSignozJWTSecret = "__SIGNOZ_JWT_SECRET_DEFAULT__";
 const prodPlatform = process.env.PROD_PLATFORM || "__PROD_PLATFORM__";
+const traceEndpoint = process.env.NECK_TRACE_ENDPOINT || "http://neckdash:8080/trace";
+const traceSampleRate = process.env.NECK_TRACE_SAMPLE_RATE || "1";
 const komodoServer = "__KOMODO_SERVER__";
 const gitProvider = "__GIT_PROVIDER__";
 const gitAccount = "__GIT_ACCOUNT__";
@@ -45,6 +58,12 @@ function runDirectoryParent(value) {
 
 function composeEnv(name, fallback) {
   return "${" + `${name}:-${String(fallback).replaceAll("$", () => "$$")}` + "}";
+}
+
+function neckDashPasswordHashComposeFallback() {
+  if (process.env.NECK_DASH_PASSWORD_HASH) return process.env.NECK_DASH_PASSWORD_HASH;
+  if (neckDashPasswordHash === "__NECK_DASH_PASSWORD_HASH_DEFAULT__") return "__NECK_DASH_PASSWORD_HASH_DEFAULT_COMPOSE__";
+  return neckDashPasswordHash;
 }
 
 function requiredComposeEnv(name) {
@@ -89,7 +108,7 @@ function renderInfraConfig() {
       app_id: appId,
       env_name: "production",
       env_type: "production",
-      cloud: "local",
+      cloud: "gcp",
       base_url: `https://${domain}/api`,
     },
     graceful_shutdown: {
@@ -105,12 +124,13 @@ function renderInfraConfig() {
     metrics: {
       type: "prometheus",
       collection_interval: 15,
-      remote_write_url: { $env: "VICTORIA_METRICS_REMOTE_WRITE_URL" },
+      remote_write_url: { $env: "SIGNOZ_PROM_REMOTE_WRITE_URL" },
     },
     used_metrics: resources.metrics.map((metric) => ({
       name: metric.name,
       services: metric.services,
     })),
+    hosted_services: resources.services.map((service) => service.name),
   };
 
   if (resources.secrets.length > 0) {
@@ -181,7 +201,9 @@ function backendEnvironment() {
   const env = [
     "      PORT: 8080",
     "      ENCORE_RUNTIME_CONFIG_PATH: /encore/runtime.prod.pb",
-    `      VICTORIA_METRICS_REMOTE_WRITE_URL: \${VICTORIA_METRICS_REMOTE_WRITE_URL:-http://victoria-metrics:8428/api/v1/write?extra_label=app_id=${appId}}`,
+    `      K_SERVICE: \${K_SERVICE:-${appId}-backend}`,
+    `      K_REVISION: \${K_REVISION:-${appId}-production}`,
+    `      SIGNOZ_PROM_REMOTE_WRITE_URL: \${SIGNOZ_PROM_REMOTE_WRITE_URL:-http://signoz-prom-bridge:19291/api/v1/write}`,
   ];
 
   if (hasDatabases()) {
@@ -224,7 +246,7 @@ function renderCompose() {
     environment:
       DOMAIN: \${DOMAIN:-${domain}}
       NECK_DASH_USER: \${NECK_DASH_USER:-${neckDashUser}}
-      NECK_DASH_PASSWORD_HASH: ${composeEnv("NECK_DASH_PASSWORD_HASH", neckDashPasswordHash)}
+      NECK_DASH_PASSWORD_HASH: ${composeEnv("NECK_DASH_PASSWORD_HASH", neckDashPasswordHashComposeFallback())}
     expose:
       - "8080"
     volumes:
@@ -258,7 +280,7 @@ function renderCompose() {
     entrypoint:
       - /bin/sh
       - -c
-      - unset ENCORE_INFRA_CONFIG_PATH; exec node --enable-source-maps /workspace/backend/.encore/build/combined/combined/main.mjs
+      - export K_POD="\${K_POD:-\$(hostname)}"; unset ENCORE_INFRA_CONFIG_PATH; exec node --enable-source-maps /workspace/.encore/build/combined/combined/main.mjs
     environment:
 ${backendEnvironment()}
     expose:
@@ -273,6 +295,22 @@ ${backendEnvironment()}
       interval: 15s
       timeout: 5s
       retries: 8`,
+`  signoz-prom-bridge:
+    image: \${OTEL_COLLECTOR_IMAGE:-${defaultOtelCollectorImage}}
+    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
+    restart: unless-stopped
+    command: ["--config=/etc/otel/config.yaml"]
+    environment:
+      APP_ID: ${appId}
+      APP_ENV: production
+      SIGNOZ_OTLP_HTTP_ENDPOINT: \${SIGNOZ_OTLP_HTTP_ENDPOINT:-http://signoz-otel-collector:4318}
+    expose:
+      - "19291"
+    volumes:
+      - ./signoz/prom-bridge.yaml:/etc/otel/config.yaml:ro
+    networks:
+      - default
+      - neck-ingress`,
   ];
 
   if (hasPostgres()) {
@@ -378,7 +416,7 @@ ${backendEnvironment()}
 }
 
 function renderNeckDashCompose() {
-  return `# Shared per-server NECK Dash stack. Deploy this once per Komodo server.
+  return `# Shared per-server NECK Dash and SigNoz stack. Deploy this once per Komodo server.
 name: neckdash
 
 services:
@@ -390,13 +428,10 @@ services:
       PORT: 8080
       NECKDASH_TRACE_AUTH_KEYS: \${NECKDASH_TRACE_AUTH_KEYS:-${appId}=${defaultTraceAuthKey}}
       NECKDASH_REQUIRE_TRACE_AUTH: \${NECKDASH_REQUIRE_TRACE_AUTH:-true}
-      NECKDASH_TRACE_SERVICE_FANOUT_LIMIT: \${NECKDASH_TRACE_SERVICE_FANOUT_LIMIT:-32}
       NECKDASH_APPS_ROOT: /apps
-      VICTORIA_TRACES_OTLP_URL: \${VICTORIA_TRACES_OTLP_URL:-http://victoria-traces:10428/insert/opentelemetry/v1/traces}
-      VICTORIA_TRACES_QUERY_URL: \${VICTORIA_TRACES_QUERY_URL:-http://victoria-traces:10428/select/jaeger}
-      VICTORIA_METRICS_QUERY_URL: \${VICTORIA_METRICS_QUERY_URL:-http://victoria-metrics:8428/api/v1/query}
-      VICTORIA_LOGS_INSERT_URL: \${VICTORIA_LOGS_INSERT_URL:-http://victoria-logs:9428/insert/jsonline?_stream_fields=app_id,env_id,service,level&_time_field=timestamp&_msg_field=message}
-      VICTORIA_LOGS_QUERY_URL: \${VICTORIA_LOGS_QUERY_URL:-http://victoria-logs:9428/select/logsql/query}
+      SIGNOZ_OTLP_TRACES_URL: \${SIGNOZ_OTLP_TRACES_URL:-http://signoz-otel-collector:4318/v1/traces}
+      SIGNOZ_OTLP_LOGS_URL: \${SIGNOZ_OTLP_LOGS_URL:-http://signoz-otel-collector:4318/v1/logs}
+      SIGNOZ_BASE_URL: \${SIGNOZ_BASE_URL:-/__neck_dash/signoz}
       NECKDASH_KOMODO_URL: \${NECKDASH_KOMODO_URL:-}
       NECKDASH_KOMODO_API_KEY: \${NECKDASH_KOMODO_API_KEY:-}
       NECKDASH_KOMODO_API_SECRET: \${NECKDASH_KOMODO_API_SECRET:-}
@@ -407,11 +442,7 @@ services:
     networks:
       - neck-ingress
     depends_on:
-      victoria-traces:
-        condition: service_started
-      victoria-metrics:
-        condition: service_started
-      victoria-logs:
+      signoz-otel-collector:
         condition: service_started
 
   neckdash-ui:
@@ -421,6 +452,7 @@ services:
     environment:
       NUXT_APP_BASE_URL: \${NUXT_APP_BASE_URL:-/__neck_dash/}
       NUXT_PUBLIC_NECKDASH_API_BASE_URL: \${NUXT_PUBLIC_NECKDASH_API_BASE_URL:-/__neck_dash/api}
+      NUXT_PUBLIC_SIGNOZ_BASE_URL: \${NUXT_PUBLIC_SIGNOZ_BASE_URL:-/__neck_dash/signoz}
       NUXT_NECKDASH_API_INTERNAL_BASE_URL: \${NUXT_NECKDASH_API_INTERNAL_BASE_URL:-http://neckdash:8080}
       PORT: 3000
       HOST: 0.0.0.0
@@ -432,56 +464,153 @@ services:
       neckdash:
         condition: service_started
 
-  victoria-traces:
-    image: \${VICTORIA_TRACES_IMAGE:-${defaultVictoriaTracesImage}}
+  signoz:
+    image: \${SIGNOZ_IMAGE:-${defaultSignozImage}}
     platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
     restart: unless-stopped
-    command:
-      - -httpListenAddr=:10428
-      - -storageDataPath=/victoria-traces-data
-      - -retentionPeriod=\${VICTORIA_TRACES_RETENTION:-30d}
-      - -servicegraph.enableTask=true
+    environment:
+      SIGNOZ_ALERTMANAGER_PROVIDER: signoz
+      SIGNOZ_GLOBAL_EXTERNAL__URL: \${SIGNOZ_EXTERNAL_URL:-https://${domain}/__neck_dash/signoz}
+      SIGNOZ_TELEMETRYSTORE_CLICKHOUSE_DSN: tcp://clickhouse:9000
+      SIGNOZ_SQLSTORE_SQLITE_PATH: /var/lib/signoz/signoz.db
+      SIGNOZ_TOKENIZER_JWT_SECRET: \${SIGNOZ_TOKENIZER_JWT_SECRET:-${defaultSignozJWTSecret}}
     volumes:
-      - victoria_traces_data:/victoria-traces-data
+      - signoz_sqlite:/var/lib/signoz
     expose:
-      - "10428"
+      - "8080"
+    networks:
+      - neck-ingress
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:8080/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  signoz-otel-collector:
+    image: \${SIGNOZ_COLLECTOR_IMAGE:-${defaultSignozCollectorImage}}
+    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - /signoz-otel-collector migrate sync check && /signoz-otel-collector --config=/etc/otel-collector-config.yaml --manager-config=/etc/otel-collector-opamp-config.yaml --copy-path=/var/tmp/collector-config.yaml
+    environment:
+      OTEL_RESOURCE_ATTRIBUTES: host.name=neckdash,os.type=linux
+      LOW_CARDINAL_EXCEPTION_GROUPING: "false"
+      SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_DSN: tcp://clickhouse:9000
+      SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_CLUSTER: cluster
+      SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_REPLICATION: "true"
+      SIGNOZ_OTEL_COLLECTOR_TIMEOUT: 10m
+    volumes:
+      - ./neckdash/signoz-otel-collector.yaml:/etc/otel-collector-config.yaml:ro
+      - ./neckdash/signoz-otel-collector-opamp.yaml:/etc/otel-collector-opamp-config.yaml:ro
+    expose:
+      - "4317"
+      - "4318"
+    networks:
+      - neck-ingress
+    depends_on:
+      signoz-telemetrystore-migrator:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+
+  signoz-telemetrystore-migrator:
+    image: \${SIGNOZ_COLLECTOR_IMAGE:-${defaultSignozCollectorImage}}
+    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
+    restart: on-failure
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - /signoz-otel-collector migrate bootstrap && /signoz-otel-collector migrate sync up && /signoz-otel-collector migrate async up
+    environment:
+      SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_DSN: tcp://clickhouse:9000
+      SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_CLUSTER: cluster
+      SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_REPLICATION: "true"
+      SIGNOZ_OTEL_COLLECTOR_TIMEOUT: 10m
+    networks:
+      - neck-ingress
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
+  signoz-init-clickhouse:
+    image: \${SIGNOZ_CLICKHOUSE_IMAGE:-${defaultSignozClickHouseImage}}
+    platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
+    restart: on-failure
+    command:
+      - bash
+      - -c
+      - |
+        version="v0.0.1"
+        node_os=$$(uname -s | tr '[:upper:]' '[:lower:]')
+        node_arch=$$(uname -m | sed s/aarch64/arm64/ | sed s/x86_64/amd64/)
+        cd /tmp
+        wget -O histogram-quantile.tar.gz "https://github.com/SigNoz/signoz/releases/download/histogram-quantile%2F$\${version}/histogram-quantile_$\${node_os}_$\${node_arch}.tar.gz"
+        tar -xzf histogram-quantile.tar.gz
+        mv histogram-quantile /var/lib/clickhouse/user_scripts/histogramQuantile
+    volumes:
+      - signoz_clickhouse_scripts:/var/lib/clickhouse/user_scripts
     networks:
       - neck-ingress
 
-  victoria-metrics:
-    image: \${VICTORIA_METRICS_IMAGE:-${defaultVictoriaMetricsImage}}
+  zookeeper-1:
+    image: \${SIGNOZ_ZOOKEEPER_IMAGE:-${defaultSignozZookeeperImage}}
     platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
+    user: root
     restart: unless-stopped
-    command:
-      - -httpListenAddr=:8428
-      - -storageDataPath=/victoria-metrics-data
-      - -retentionPeriod=\${VICTORIA_METRICS_RETENTION:-90d}
+    environment:
+      ZOO_SERVER_ID: 1
+      ALLOW_ANONYMOUS_LOGIN: "yes"
+      ZOO_AUTOPURGE_INTERVAL: 1
+      ZOO_ENABLE_PROMETHEUS_METRICS: "yes"
+      ZOO_PROMETHEUS_METRICS_PORT_NUMBER: 9141
     volumes:
-      - victoria_metrics_data:/victoria-metrics-data
+      - signoz_zookeeper:/bitnami/zookeeper
     expose:
-      - "8428"
+      - "2181"
     networks:
       - neck-ingress
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -m 2 http://localhost:8080/commands/ruok | grep error | grep null"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
 
-  victoria-logs:
-    image: \${VICTORIA_LOGS_IMAGE:-${defaultVictoriaLogsImage}}
+  clickhouse:
+    image: \${SIGNOZ_CLICKHOUSE_IMAGE:-${defaultSignozClickHouseImage}}
     platform: ${composeEnv("PROD_PLATFORM", prodPlatform)}
     restart: unless-stopped
-    command:
-      - -httpListenAddr=:9428
-      - -storageDataPath=/victoria-logs-data
-      - -retentionPeriod=\${VICTORIA_LOGS_RETENTION:-30d}
+    tty: true
+    environment:
+      CLICKHOUSE_SKIP_USER_SETUP: 1
     volumes:
-      - victoria_logs_data:/victoria-logs-data
+      - ./neckdash/clickhouse-cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+      - ./neckdash/clickhouse-custom-function.xml:/etc/clickhouse-server/custom-function.xml:ro
+      - signoz_clickhouse_scripts:/var/lib/clickhouse/user_scripts
+      - signoz_clickhouse:/var/lib/clickhouse
     expose:
-      - "9428"
+      - "8123"
+      - "9000"
     networks:
       - neck-ingress
+    depends_on:
+      signoz-init-clickhouse:
+        condition: service_completed_successfully
+      zookeeper-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:8123/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
 
 volumes:
-  victoria_traces_data:
-  victoria_metrics_data:
-  victoria_logs_data:
+  signoz_clickhouse:
+  signoz_clickhouse_scripts:
+  signoz_sqlite:
+  signoz_zookeeper:
 
 networks:
   neck-ingress:
@@ -499,7 +628,7 @@ function komodoEnvLines() {
     `NECK_DASH_PASSWORD_HASH = ${neckDashPasswordHash}`,
     "NUXT_PUBLIC_API_BASE_URL = /api",
     "NUXT_API_INTERNAL_BASE_URL = http://backend:8080",
-    `VICTORIA_METRICS_REMOTE_WRITE_URL = http://victoria-metrics:8428/api/v1/write?extra_label=app_id=${appId}`,
+    "SIGNOZ_PROM_REMOTE_WRITE_URL = http://signoz-prom-bridge:19291/api/v1/write",
     `PROD_PLATFORM = ${prodPlatform}`,
     "",
   ];
@@ -516,6 +645,7 @@ function komodoEnvLines() {
 
   lines.push(`BACKEND_IMAGE = ${registry}/backend:prod`);
   lines.push(`FRONTEND_IMAGE = ${registry}/frontend:prod`);
+  lines.push(`OTEL_COLLECTOR_IMAGE = ${defaultOtelCollectorImage}`);
   if (hasPostgres()) {
     lines.push(`MIGRATIONS_IMAGE = ${registry}/migrations:prod`);
   }
@@ -529,18 +659,15 @@ function neckDashKomodoEnvLines() {
     `NECKDASH_APPS_ROOT = ${defaultNeckDashAppsRoot}`,
     `NECKDASH_TRACE_AUTH_KEYS = ${appId}=${defaultTraceAuthKey}`,
     "NECKDASH_REQUIRE_TRACE_AUTH = true",
-    "NECKDASH_TRACE_SERVICE_FANOUT_LIMIT = 32",
     "NUXT_APP_BASE_URL = /__neck_dash/",
     "NUXT_PUBLIC_NECKDASH_API_BASE_URL = /__neck_dash/api",
+    "NUXT_PUBLIC_SIGNOZ_BASE_URL = /__neck_dash/signoz",
     "NUXT_NECKDASH_API_INTERNAL_BASE_URL = http://neckdash:8080",
-    "VICTORIA_TRACES_OTLP_URL = http://victoria-traces:10428/insert/opentelemetry/v1/traces",
-    "VICTORIA_TRACES_QUERY_URL = http://victoria-traces:10428/select/jaeger",
-    "VICTORIA_TRACES_RETENTION = 30d",
-    "VICTORIA_METRICS_QUERY_URL = http://victoria-metrics:8428/api/v1/query",
-    "VICTORIA_METRICS_RETENTION = 90d",
-    "VICTORIA_LOGS_INSERT_URL = http://victoria-logs:9428/insert/jsonline?_stream_fields=app_id,env_id,service,level&_time_field=timestamp&_msg_field=message",
-    "VICTORIA_LOGS_QUERY_URL = http://victoria-logs:9428/select/logsql/query",
-    "VICTORIA_LOGS_RETENTION = 30d",
+    "SIGNOZ_BASE_URL = /__neck_dash/signoz",
+    `SIGNOZ_EXTERNAL_URL = https://${domain}/__neck_dash/signoz`,
+    "SIGNOZ_OTLP_TRACES_URL = http://signoz-otel-collector:4318/v1/traces",
+    "SIGNOZ_OTLP_LOGS_URL = http://signoz-otel-collector:4318/v1/logs",
+    `SIGNOZ_TOKENIZER_JWT_SECRET = ${defaultSignozJWTSecret}`,
     "NECKDASH_KOMODO_URL = [[NECKDASH_KOMODO_URL]]",
     "NECKDASH_KOMODO_API_KEY = [[NECKDASH_KOMODO_API_KEY]]",
     "NECKDASH_KOMODO_API_SECRET = [[NECKDASH_KOMODO_API_SECRET]]",
@@ -548,9 +675,10 @@ function neckDashKomodoEnvLines() {
     "",
     `NECKDASH_IMAGE = ${defaultNeckDashImage}`,
     `NECKDASH_UI_IMAGE = ${defaultNeckDashUIImage}`,
-    `VICTORIA_TRACES_IMAGE = ${defaultVictoriaTracesImage}`,
-    `VICTORIA_METRICS_IMAGE = ${defaultVictoriaMetricsImage}`,
-    `VICTORIA_LOGS_IMAGE = ${defaultVictoriaLogsImage}`,
+    `SIGNOZ_IMAGE = ${defaultSignozImage}`,
+    `SIGNOZ_COLLECTOR_IMAGE = ${defaultSignozCollectorImage}`,
+    `SIGNOZ_CLICKHOUSE_IMAGE = ${defaultSignozClickHouseImage}`,
+    `SIGNOZ_ZOOKEEPER_IMAGE = ${defaultSignozZookeeperImage}`,
   ].join("\n");
 }
 
@@ -657,14 +785,14 @@ ${renderMigrationPreDeploy()}
     ...resources.crons.map(renderCronAction),
   ].filter(Boolean);
 
-  return `${stack}${actions.join("\n")}\n`;
+  return `${stack.trimEnd()}${actions.length > 0 ? `\n${actions.join("\n")}` : ""}\n`;
 }
 
 function renderNeckDashKomodoResources() {
   return `# Shared NECK Dash Komodo stack. Import once per server, not once per app.
 [[stack]]
 name = "neckdash"
-description = "Shared per-server NECK Dash and Victoria observability stack"
+description = "Shared per-server NECK Dash and SigNoz observability stack"
 tags = ["neck", "observability"]
 deploy = true
 
@@ -714,11 +842,23 @@ async function writeGeneratedFile(outputPath, contents) {
   console.log(`${chalk.green("wrote")} ${path.relative(process.cwd(), outputPath)}`);
 }
 
-await writeGeneratedFile(path.resolve("deploy/encore/infra.prod.json"), renderInfraConfig());
+const infraConfigText = renderInfraConfig();
+const infraConfig = JSON.parse(infraConfigText);
+
+await writeGeneratedFile(path.resolve("deploy/encore/infra.prod.json"), infraConfigText);
+await writeGeneratedFile(path.resolve("deploy/encore/runtime.prod.pb"), encodeRuntimeConfig(infraConfig, {
+  traceEndpoint,
+  traceSampleRate,
+}));
 await writeGeneratedFile(path.resolve("deploy/encore/meta.json"), renderMetaJSON());
 await writeGeneratedFile(path.resolve("deploy/compose.yaml"), renderCompose());
+await writeGeneratedFile(path.resolve("deploy/signoz/prom-bridge.yaml"), renderSignozPromBridgeConfig());
 await writeGeneratedFile(path.resolve("deploy/komodo/resources.toml"), renderKomodoResources());
 await writeGeneratedFile(path.resolve("deploy/neckdash/compose.yaml"), renderNeckDashCompose());
+await writeGeneratedFile(path.resolve("deploy/neckdash/signoz-otel-collector.yaml"), renderSignozCollectorConfig());
+await writeGeneratedFile(path.resolve("deploy/neckdash/signoz-otel-collector-opamp.yaml"), renderSignozCollectorOpampConfig());
+await writeGeneratedFile(path.resolve("deploy/neckdash/clickhouse-cluster.xml"), renderClickHouseClusterXML());
+await writeGeneratedFile(path.resolve("deploy/neckdash/clickhouse-custom-function.xml"), renderClickHouseCustomFunctionXML());
 await writeGeneratedFile(path.resolve("deploy/neckdash/resources.toml"), renderNeckDashKomodoResources());
 
 console.log(chalk.dim(`source=${resources.source}`));

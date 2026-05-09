@@ -1,33 +1,10 @@
-import { getJSON, sortBy, stringValue, valueOr, victoriaTracesQueryURL } from "./config";
+import { sortBy, stringValue, valueOr } from "./config";
 import type { FlowEdge, FlowNode } from "./types";
 
 type EdgeAccumulator = { edge: FlowEdge };
 
 export async function buildFlow(metaBytes: Buffer): Promise<{ nodes: FlowNode[]; edges: FlowEdge[] }> {
-  const { nodes, edgeMap, services } = catalogFlow(metaBytes);
-  const seenNodes = new Set(nodes.map((node) => node.id));
-
-  for (const observed of await observedFlowEdges()) {
-    if (services.size > 0 && (!services.has(observed.source) || !services.has(observed.target))) continue;
-    const sourceID = flowServiceID(observed.source);
-    const targetID = flowServiceID(observed.target);
-    if (!seenNodes.has(sourceID)) {
-      nodes.push({ id: sourceID, kind: "service", name: observed.source });
-      seenNodes.add(sourceID);
-    }
-    if (!seenNodes.has(targetID)) {
-      nodes.push({ id: targetID, kind: "service", name: observed.target });
-      seenNodes.add(targetID);
-    }
-    mergeFlowEdge(edgeMap, {
-      source: sourceID,
-      target: targetID,
-      kind: "rpc",
-      observed: true,
-      observedCount: observed.count,
-      count: observed.count,
-    });
-  }
+  const { nodes, edgeMap } = catalogFlow(metaBytes);
 
   const edges = [...edgeMap.values()].map((acc) => {
     const edge = acc.edge;
@@ -41,28 +18,15 @@ export async function buildFlow(metaBytes: Buffer): Promise<{ nodes: FlowNode[];
   };
 }
 
-async function observedFlowEdges() {
-  const end = Date.now();
-  const endpoint = `${victoriaTracesQueryURL()}/api/dependencies?endTs=${end}&lookback=${60 * 60 * 1000}`;
-  try {
-    const raw = await getJSON<{ data?: Array<{ parent?: string; child?: string; callCount?: number }> }>(endpoint);
-    return (raw.data ?? [])
-      .filter((item) => item.parent && item.child)
-      .map((item) => ({ source: item.parent!, target: item.child!, count: item.callCount || 0 }));
-  } catch {
-    return [];
-  }
-}
-
 function catalogFlow(data: Buffer) {
   if (data.length === 0) {
-    return { nodes: [] as FlowNode[], edgeMap: new Map<string, EdgeAccumulator>(), services: new Set<string>() };
+    return { nodes: [] as FlowNode[], edgeMap: new Map<string, EdgeAccumulator>() };
   }
   let meta: any;
   try {
     meta = JSON.parse(data.toString());
   } catch {
-    return { nodes: [] as FlowNode[], edgeMap: new Map<string, EdgeAccumulator>(), services: new Set<string>() };
+    return { nodes: [] as FlowNode[], edgeMap: new Map<string, EdgeAccumulator>() };
   }
 
   const packageToService = new Map<string, string>();
@@ -99,6 +63,9 @@ function catalogFlow(data: Buffer) {
       databases: copyStrings(svc.databases),
       cronJobs: flowServiceCronTitles(meta.cron_jobs ?? [], serviceToPackages.get(name) ?? []),
     });
+    for (const database of svc.databases ?? []) {
+      addNode({ id: flowDatabaseID(database), kind: "database", name: stringValue(database) });
+    }
   }
 
   for (const topic of meta.pubsub_topics ?? []) {
@@ -126,10 +93,9 @@ function catalogFlow(data: Buffer) {
 
   for (const svc of meta.svcs ?? []) {
     for (const database of svc.databases ?? []) {
-      if (database === svc.name || !services.has(database)) continue;
       mergeFlowEdge(edgeMap, {
         source: flowServiceID(svc.name),
-        target: flowServiceID(database),
+        target: flowDatabaseID(database),
         kind: "database",
         static: true,
         staticCount: 1,
@@ -167,7 +133,7 @@ function catalogFlow(data: Buffer) {
     }
   }
 
-  return { nodes, edgeMap, services };
+  return { nodes, edgeMap };
 }
 
 function mergeFlowEdge(edges: Map<string, EdgeAccumulator>, edge: FlowEdge) {
@@ -214,6 +180,10 @@ function flowServiceID(name: string) {
 
 function flowTopicID(name: string) {
   return name.startsWith("topic:") ? name : `topic:${name}`;
+}
+
+function flowDatabaseID(name: string) {
+  return name.startsWith("database:") ? name : `database:${name}`;
 }
 
 function copyStrings(values: unknown): string[] {

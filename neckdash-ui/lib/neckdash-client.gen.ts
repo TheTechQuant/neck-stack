@@ -94,10 +94,6 @@ export namespace dash {
         app?: string
     }
 
-    export interface AppParams {
-        app?: string
-    }
-
     export interface AppsResponse {
         apps: DashApp[]
         defaultApp: string
@@ -185,12 +181,6 @@ export namespace dash {
         description: string
     }
 
-    export interface CustomMetricsResponse {
-        windowHours: number
-        definitions: MetricDefinition[]
-        samples: MetricSample[]
-    }
-
     export interface DashApp {
         id: string
         name: string
@@ -233,109 +223,6 @@ export namespace dash {
         ok: boolean
     }
 
-    export interface InsightsParams {
-        range?: string
-        app?: string
-    }
-
-    export interface InsightsPoint {
-        timestamp: string
-        value: number
-    }
-
-    export interface InsightsResponse {
-        range: string
-        windowSeconds: number
-        requests: number
-        errors: number
-        errorRate: number
-        requestRate: InsightsSeries[]
-        services: InsightsService[]
-    }
-
-    export interface InsightsSeries {
-        service: string
-        points: InsightsPoint[]
-    }
-
-    export interface InsightsService {
-        service: string
-        requests: number
-        errors: number
-        errorRate: number
-        rate: number
-    }
-
-    export interface LiveEvent {
-        type: string
-        time: string
-    }
-
-    export interface LogEntry {
-        timestamp: string
-        message: string
-        level: string
-        service: string
-        endpoint: string
-        traceId: string
-        spanId: string
-        fields: { [key: string]: string }
-    }
-
-    export interface LogListParams {
-        app?: string
-        query?: string
-        service?: string
-        level?: string
-        traceId?: string
-        limit?: number
-        hours?: number
-    }
-
-    export interface LogListResponse {
-        query: string
-        logs: LogEntry[]
-    }
-
-    export interface MetricDefinition {
-        name: string
-        kind: string
-        doc: string
-        serviceName: string
-        labels: MetricLabel[]
-    }
-
-    export interface MetricLabel {
-        key: string
-        doc: string
-    }
-
-    export interface MetricSample {
-        name: string
-        kind: string
-        serviceName: string
-        labels: { [key: string]: string }
-        value: number
-        windowValue: number
-        timestamp: string
-    }
-
-    export interface MetricsParams {
-        hours?: number
-        app?: string
-    }
-
-    export interface MetricsParams {
-        hours?: number
-        app?: string
-    }
-
-    export interface MetricsResponse {
-        windowHours: number
-        services: ServiceMetric[]
-        runtime: MetricSample[]
-    }
-
     export interface SamplingResponse {
         rules: SamplingRule[]
         runtimeNote: string
@@ -347,46 +234,6 @@ export namespace dash {
         rate: number
     }
 
-    export interface ServiceMetric {
-        service: string
-        endpoint: string
-        traceCount: number
-        errorCount: number
-    }
-
-    export interface TraceDetailResponse {
-        traceId: string
-        rawJson: string
-    }
-
-    export interface TraceListParams {
-        app?: string
-        service?: string
-        search?: string
-        limit?: number
-        hours?: number
-    }
-
-    export interface TraceListResponse {
-        traces: TraceSummary[]
-    }
-
-    export interface TraceServicesResponse {
-        services: string[]
-    }
-
-    export interface TraceSummary {
-        traceId: string
-        service: string
-        endpoint: string
-        startedAt: string
-        durationMs: number
-        spanCount: number
-        error: boolean
-        statusCode: number
-        environment: string
-    }
-
     export class ServiceClient {
         private baseClient: BaseClient
 
@@ -394,19 +241,10 @@ export namespace dash {
             this.baseClient = baseClient
             this.catalog = this.catalog.bind(this)
             this.config = this.config.bind(this)
-            this.customMetrics = this.customMetrics.bind(this)
-            this.events = this.events.bind(this)
             this.flow = this.flow.bind(this)
             this.getSampling = this.getSampling.bind(this)
-            this.getTrace = this.getTrace.bind(this)
             this.health = this.health.bind(this)
-            this.insights = this.insights.bind(this)
             this.listApps = this.listApps.bind(this)
-            this.listLogs = this.listLogs.bind(this)
-            this.listTraceServices = this.listTraceServices.bind(this)
-            this.listTraces = this.listTraces.bind(this)
-            this.metricsSummaryEndpoint = this.metricsSummaryEndpoint.bind(this)
-            this.tailLogsRaw = this.tailLogsRaw.bind(this)
             this.trace = this.trace.bind(this)
             this.traceFromSingleDomain = this.traceFromSingleDomain.bind(this)
             this.updateConfigEndpoint = this.updateConfigEndpoint.bind(this)
@@ -441,29 +279,7 @@ export namespace dash {
         }
 
         /**
-         * CustomMetrics returns app-defined Encore metrics exported through Prometheus remote write.
-         */
-        public async customMetrics(params: MetricsParams): Promise<CustomMetricsResponse> {
-            // Convert our params into the objects we need for the request
-            const query = makeRecord<string, string | string[]>({
-                app:   params.app,
-                hours: params.hours === undefined ? undefined : String(params.hours),
-            })
-
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/metrics/custom`, undefined, {query})
-            return await resp.json() as CustomMetricsResponse
-        }
-
-        /**
-         * Events streams dashboard ticks so the UI can refresh active data through the generated client.
-         */
-        public async events(): Promise<StreamIn<LiveEvent>> {
-            return await this.baseClient.createStreamIn(`/events`)
-        }
-
-        /**
-         * Flow returns an Encore Flow-style dependency graph from generated metadata plus observed servicegraph counts.
+         * Flow returns an Encore Flow-style dependency graph from generated metadata.
          */
         public async flow(params: AppParams): Promise<FlowResponse> {
             // Convert our params into the objects we need for the request
@@ -486,36 +302,12 @@ export namespace dash {
         }
 
         /**
-         * GetTrace returns a raw Jaeger trace payload from VictoriaTraces.
-         */
-        public async getTrace(traceID: string): Promise<TraceDetailResponse> {
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/traces/detail/${encodeURIComponent(traceID)}`)
-            return await resp.json() as TraceDetailResponse
-        }
-
-        /**
          * Health reports whether NECK Dash is serving requests.
          */
         public async health(): Promise<HealthResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/health`)
             return await resp.json() as HealthResponse
-        }
-
-        /**
-         * Insights returns an Encore Cloud-style operational overview.
-         */
-        public async insights(params: InsightsParams): Promise<InsightsResponse> {
-            // Convert our params into the objects we need for the request
-            const query = makeRecord<string, string | string[]>({
-                app:   params.app,
-                range: params.range,
-            })
-
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/insights`, undefined, {query})
-            return await resp.json() as InsightsResponse
         }
 
         /**
@@ -528,81 +320,7 @@ export namespace dash {
         }
 
         /**
-         * ListLogs returns searchable Encore structured logs stored in VictoriaLogs.
-         */
-        public async listLogs(params: LogListParams): Promise<LogListResponse> {
-            // Convert our params into the objects we need for the request
-            const query = makeRecord<string, string | string[]>({
-                app:     params.app,
-                hours:   params.hours === undefined ? undefined : String(params.hours),
-                level:   params.level,
-                limit:   params.limit === undefined ? undefined : String(params.limit),
-                query:   params.query,
-                service: params.service,
-                traceId: params.traceId,
-            })
-
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/logs`, undefined, {query})
-            return await resp.json() as LogListResponse
-        }
-
-        /**
-         * ListTraceServices returns service names indexed by VictoriaTraces.
-         */
-        public async listTraceServices(params: AppParams): Promise<TraceServicesResponse> {
-            // Convert our params into the objects we need for the request
-            const query = makeRecord<string, string | string[]>({
-                app: params.app,
-            })
-
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/traces/services`, undefined, {query})
-            return await resp.json() as TraceServicesResponse
-        }
-
-        /**
-         * ListTraces returns recent traces from VictoriaTraces through its Jaeger API.
-         */
-        public async listTraces(params: TraceListParams): Promise<TraceListResponse> {
-            // Convert our params into the objects we need for the request
-            const query = makeRecord<string, string | string[]>({
-                app:     params.app,
-                hours:   params.hours === undefined ? undefined : String(params.hours),
-                limit:   params.limit === undefined ? undefined : String(params.limit),
-                search:  params.search,
-                service: params.service,
-            })
-
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/traces`, undefined, {query})
-            return await resp.json() as TraceListResponse
-        }
-
-        /**
-         * MetricsSummary returns Encore runtime RED metrics from Prometheus remote write.
-         */
-        public async metricsSummaryEndpoint(params: MetricsParams): Promise<MetricsResponse> {
-            // Convert our params into the objects we need for the request
-            const query = makeRecord<string, string | string[]>({
-                app:   params.app,
-                hours: params.hours === undefined ? undefined : String(params.hours),
-            })
-
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/metrics/summary`, undefined, {query})
-            return await resp.json() as MetricsResponse
-        }
-
-        /**
-         * TailLogs proxies VictoriaLogs live tailing for CLI and UI clients.
-         */
-        public async tailLogsRaw(method: "GET", body?: RequestInit["body"], options?: CallParameters): Promise<globalThis.Response> {
-            return this.baseClient.callAPI(method, `/logs/tail`, body, options)
-        }
-
-        /**
-         * Trace receives Encore runtime trace streams and forwards them to VictoriaTraces and VictoriaLogs.
+         * Trace receives Encore runtime trace streams and forwards them to SigNoz through OTLP.
          */
         public async trace(method: "POST", body?: RequestInit["body"], options?: CallParameters): Promise<globalThis.Response> {
             return this.baseClient.callAPI(method, `/trace`, body, options)

@@ -4,7 +4,8 @@ export default defineNuxtConfig({
   runtimeConfig: {
     neckdashApiInternalBaseUrl: process.env.NUXT_NECKDASH_API_INTERNAL_BASE_URL || "http://localhost:8080",
     public: {
-      neckdashApiBaseUrl: process.env.NUXT_PUBLIC_NECKDASH_API_BASE_URL || "/api",
+      neckdashApiBaseUrl: process.env.NUXT_PUBLIC_NECKDASH_API_BASE_URL || "http://localhost:8080",
+      signozBaseUrl: process.env.NUXT_PUBLIC_SIGNOZ_BASE_URL || "/__neck_dash/signoz",
     },
   },
   app: {
@@ -18,7 +19,7 @@ export default defineNuxtConfig({
       ],
     },
   },
-  css: ["~/assets/css/main.css", "~/assets/css/traces.css"],
+  css: ["~/assets/css/main.css"],
   routeRules: {
     "/**": {
       headers: {

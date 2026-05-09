@@ -25,9 +25,10 @@ NECK_DASH_USER = __NECK_DASH_USER__
 NECK_DASH_PASSWORD_HASH = __NECK_DASH_PASSWORD_HASH_DEFAULT__
 NUXT_PUBLIC_API_BASE_URL = /api
 NUXT_API_INTERNAL_BASE_URL = http://backend:8080
-VICTORIA_METRICS_REMOTE_WRITE_URL = http://victoria-metrics:8428/api/v1/write?extra_label=app_id=__APP_ID__
+SIGNOZ_PROM_REMOTE_WRITE_URL = http://signoz-prom-bridge:19291/api/v1/write
 PROD_PLATFORM = __PROD_PLATFORM__
 
 BACKEND_IMAGE = __REGISTRY__/backend:prod
 FRONTEND_IMAGE = __REGISTRY__/frontend:prod
+OTEL_COLLECTOR_IMAGE = otel/opentelemetry-collector-contrib:0.140.1
 """

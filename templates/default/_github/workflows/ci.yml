@@ -105,7 +105,7 @@ jobs:
       - name: Generate API artifacts
         run: pnpm api:gen
       - name: Build backend image
-        run: cd backend && encore build docker --os "${{ steps.platform.outputs.os }}" --arch "${{ steps.platform.outputs.arch }}" --config ../deploy/encore/infra.prod.json "$BACKEND_IMAGE"
+        run: pnpm docker:backend
       - name: Build frontend image
         run: |
           docker build \
@@ -138,8 +138,14 @@ jobs:
           retention-days: 7
           path: |
             deploy/encore/infra.prod.json
+            deploy/encore/runtime.prod.pb
             deploy/encore/meta.json
             deploy/compose.yaml
+            deploy/signoz/prom-bridge.yaml
             deploy/komodo/resources.toml
             deploy/neckdash/compose.yaml
+            deploy/neckdash/signoz-otel-collector.yaml
+            deploy/neckdash/signoz-otel-collector-opamp.yaml
+            deploy/neckdash/clickhouse-cluster.xml
+            deploy/neckdash/clickhouse-custom-function.xml
             deploy/neckdash/resources.toml

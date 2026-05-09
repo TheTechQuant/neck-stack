@@ -8,14 +8,6 @@ export interface AppParams {
   app?: Query<string>;
 }
 
-export interface TraceListParams {
-  app?: Query<string>;
-  service?: Query<string>;
-  search?: Query<string>;
-  limit?: Query<number>;
-  hours?: Query<number>;
-}
-
 export interface DashApp {
   id: string;
   name: string;
@@ -28,141 +20,6 @@ export interface DashApp {
 export interface AppsResponse {
   apps: DashApp[];
   defaultApp: string;
-}
-
-export interface TraceSummary {
-  traceId: string;
-  service: string;
-  endpoint: string;
-  startedAt: string;
-  durationMs: number;
-  spanCount: number;
-  error: boolean;
-  statusCode: number;
-  environment: string;
-}
-
-export interface TraceListResponse {
-  traces: TraceSummary[];
-}
-
-export interface TraceServicesResponse {
-  services: string[];
-}
-
-export interface TraceDetailParams {
-  traceID: string;
-}
-
-export interface TraceDetailResponse {
-  traceId: string;
-  rawJson: string;
-}
-
-export interface LogListParams {
-  app?: Query<string>;
-  query?: Query<string>;
-  service?: Query<string>;
-  level?: Query<string>;
-  traceId?: Query<string>;
-  limit?: Query<number>;
-  hours?: Query<number>;
-}
-
-export interface LogEntry {
-  timestamp: string;
-  message: string;
-  level: string;
-  service: string;
-  endpoint: string;
-  traceId: string;
-  spanId: string;
-  fields: Record<string, string>;
-}
-
-export interface LogListResponse {
-  query: string;
-  logs: LogEntry[];
-}
-
-export interface MetricsParams {
-  hours?: Query<number>;
-  app?: Query<string>;
-}
-
-export interface InsightsParams {
-  range?: Query<string>;
-  app?: Query<string>;
-}
-
-export interface InsightsPoint {
-  timestamp: string;
-  value: number;
-}
-
-export interface InsightsSeries {
-  service: string;
-  points: InsightsPoint[];
-}
-
-export interface InsightsService {
-  service: string;
-  requests: number;
-  errors: number;
-  errorRate: number;
-  rate: number;
-}
-
-export interface InsightsResponse {
-  range: string;
-  windowSeconds: number;
-  requests: number;
-  errors: number;
-  errorRate: number;
-  requestRate: InsightsSeries[];
-  services: InsightsService[];
-}
-
-export interface ServiceMetric {
-  service: string;
-  endpoint: string;
-  traceCount: number;
-  errorCount: number;
-}
-
-export interface MetricsResponse {
-  windowHours: number;
-  services: ServiceMetric[];
-  runtime: MetricSample[];
-}
-
-export interface MetricLabel {
-  key: string;
-  doc: string;
-}
-
-export interface MetricDefinition {
-  name: string;
-  kind: string;
-  doc: string;
-  serviceName: string;
-  labels: MetricLabel[];
-}
-
-export interface MetricSample {
-  name: string;
-  kind: string;
-  serviceName: string;
-  labels: Record<string, string>;
-  value: number;
-  windowValue: number;
-  timestamp: string;
-}
-
-export interface CustomMetricsResponse {
-  windowHours: number;
-  definitions: MetricDefinition[];
-  samples: MetricSample[];
 }
 
 export interface FlowNode {
@@ -285,9 +142,4 @@ export interface ConfigUpdateResponse {
   ok: boolean;
   message: string;
   deployed: boolean;
-}
-
-export interface LiveEvent {
-  type: string;
-  time: string;
 }

@@ -78,7 +78,9 @@ await upsertDotEnv({
   KOMODO_API_SECRET: komodoApiSecret,
 });
 const appID = String(process.env.APP_ID || "__APP_ID__").trim();
+const traceAuthKey = String(process.env.NECKDASH_TRACE_AUTH_KEY || "__TRACE_AUTH_KEY_DEFAULT__").trim();
 const ingressNetwork = String(process.env.NECK_INGRESS_NETWORK || "neck-ingress").trim();
+const sharedStackName = String(process.env.NECKDASH_STACK_NAME || "neckdash").trim();
 const sharedSyncName = String(process.env.NECKDASH_SYNC_NAME || "neckdash-sync").trim();
 const appSyncName = String(process.env.KOMODO_RESOURCE_SYNC_NAME || `${appID}-sync`).trim();
 
@@ -192,6 +194,14 @@ async function getResourceSync(name) {
   }
 }
 
+async function getStack(name) {
+  try {
+    return await komodoRead("GetStack", { stack: name });
+  } catch {
+    return null;
+  }
+}
+
 async function getVariable(name) {
   try {
     return await komodoRead("GetVariable", { name });
@@ -252,6 +262,58 @@ async function upsertSync(name, contents, { updateExisting = true } = {}) {
     console.log(chalk.green(`Created Resource Sync ${name}`));
   }
   return true;
+}
+
+function parseEnvironment(raw) {
+  const values = {};
+  for (const line of String(raw || "").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const index = trimmed.indexOf("=");
+    if (index === -1) continue;
+    const key = trimmed.slice(0, index).trim();
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) values[key] = trimmed.slice(index + 1).trim();
+  }
+  return values;
+}
+
+function renderEnvironment(values) {
+  return Object.keys(values).sort().map((key) => `${key} = ${values[key]}`).join("\n") + "\n";
+}
+
+function parseTraceAuthKeys(raw) {
+  const keys = new Map();
+  for (const entry of String(raw || "").split(/[,\n]/g)) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const index = trimmed.includes("=") ? trimmed.indexOf("=") : trimmed.indexOf(":");
+    if (index === -1) continue;
+    const app = trimmed.slice(0, index).trim();
+    const key = trimmed.slice(index + 1).trim();
+    if (app && key) keys.set(app, key);
+  }
+  return keys;
+}
+
+async function ensureSharedTraceAuthKey() {
+  if (dryRun) {
+    console.log(chalk.yellow(`[dry-run] ensure ${appID} trace key is present on ${sharedStackName}`));
+    return;
+  }
+
+  const stack = await getStack(sharedStackName);
+  if (!stack) throw new Error(`Shared stack ${sharedStackName} was not found after Resource Sync.`);
+  const envVars = parseEnvironment(stack.config?.environment || "");
+  const keys = parseTraceAuthKeys(envVars.NECKDASH_TRACE_AUTH_KEYS || "");
+  if (keys.get(appID) === traceAuthKey) return;
+
+  keys.set(appID, traceAuthKey);
+  envVars.NECKDASH_TRACE_AUTH_KEYS = [...keys.entries()].map(([app, key]) => `${app}=${key}`).join(",");
+  await komodoWrite("UpdateStack", {
+    id: resourceId(stack),
+    config: { ...(stack.config ?? {}), environment: renderEnvironment(envVars) },
+  });
+  console.log(chalk.green(`Added ${appID} trace auth key to shared ${sharedStackName} stack`));
 }
 
 async function runSync(name, changed) {
@@ -323,6 +385,7 @@ if (!skipShared) {
   const sharedContents = await readFile("deploy/neckdash/resources.toml");
   const changed = await upsertSync(sharedSyncName, sharedContents, { updateExisting: updateShared });
   await runSync(sharedSyncName, changed);
+  await ensureSharedTraceAuthKey();
 }
 
 const appContents = await readFile("deploy/komodo/resources.toml");
