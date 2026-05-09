@@ -2,7 +2,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "v
 import { refreshNuxtData, useAsyncData } from "#app";
 import { useDashClient } from "./useDashApi";
 
-type TraceSummary = {
+export type TraceSummary = {
   traceId: string;
   service: string;
   endpoint: string;
@@ -14,10 +14,12 @@ type TraceSummary = {
   environment: string;
 };
 
-type SpanSummary = {
+export type SpanSummary = {
   spanId: string;
   parentSpanId: string;
   spanType: string;
+  kind: string;
+  name: string;
   serviceName: string;
   endpointName: string;
   topicName: string;
@@ -27,9 +29,11 @@ type SpanSummary = {
   durationMs: number;
   statusCode: number;
   isError: boolean;
+  attributes: Record<string, string>;
+  logs: SpanLog[];
 };
 
-type TraceEvent = {
+export type TraceEvent = {
   spanId: string;
   eventId: string;
   eventType: string;
@@ -37,9 +41,11 @@ type TraceEvent = {
   eventJson: string;
 };
 
-type TraceDetail = {
-  traceId: string;
-  rawJson: string;
+export type SpanLog = {
+  timestamp: string;
+  level: string;
+  message: string;
+  fields: Record<string, string>;
 };
 
 type ServiceMetric = {
@@ -204,6 +210,7 @@ export function useDashboardState() {
   const search = ref("");
   const service = ref("");
   const selectedTraceID = ref("");
+  const selectedSpanID = ref("");
   const selectedEvent = ref<TraceEvent | null>(null);
   const selectedCatalogServiceName = ref("");
   const selectedCatalogEndpointKey = ref("");
@@ -217,9 +224,15 @@ export function useDashboardState() {
   const configSaving = ref(false);
   const configMessage = ref("");
   const configError = ref("");
+  const liveDataOptions = (watchSources: any[] = []) => ({
+    watch: watchSources,
+    dedupe: "cancel" as const,
+    getCachedData: () => undefined,
+  });
   const { data: appsData, refresh: refreshApps } = useAsyncData(
     "neckdash-apps",
     () => client.dash.listApps(),
+    liveDataOptions(),
   );
 
   const apps = computed(() => appsData.value?.apps ?? []);
@@ -242,25 +255,25 @@ export function useDashboardState() {
   const { data: insightsData, refresh: refreshInsights } = useAsyncData(
     "neckdash-insights",
     () => client.dash.insights({ range: insightRange.value, app: appQuery.value }),
-    { watch: [insightRange, selectedAppID] },
+    liveDataOptions([insightRange, selectedAppID]),
   );
 
   const { data: traceList, refresh: refreshTraces } = useAsyncData(
     "neckdash-traces",
     () => client.dash.listTraces({
-      limit: 50,
+      limit: 250,
       app: appQuery.value,
       service: service.value,
       search: search.value,
       hours: traceHours.value,
     }),
-    { watch: [selectedAppID, service, search, traceHours] },
+    liveDataOptions([selectedAppID, service, search, traceHours]),
   );
 
   const { data: traceServicesData, refresh: refreshTraceServices } = useAsyncData(
     "neckdash-trace-services",
     () => client.dash.listTraceServices({ app: appQuery.value }),
-    { watch: [selectedAppID] },
+    liveDataOptions([selectedAppID]),
   );
 
   const traces = computed(() => traceList.value?.traces ?? []);
@@ -278,36 +291,37 @@ export function useDashboardState() {
     () => selectedTrace.value
       ? client.dash.getTrace(selectedTrace.value.traceId)
       : Promise.resolve(null),
-    { watch: [selectedTraceID] },
+    liveDataOptions([selectedTraceID]),
   );
 
   const { data: metricsData, refresh: refreshMetrics } = useAsyncData(
     "neckdash-metrics",
     () => client.dash.metricsSummaryEndpoint({ hours: 24, app: appQuery.value }),
-    { watch: [selectedAppID] },
+    liveDataOptions([selectedAppID]),
   );
 
   const { data: customMetricsData, refresh: refreshCustomMetrics } = useAsyncData(
     "neckdash-custom-metrics",
     () => client.dash.customMetrics({ hours: 24, app: appQuery.value }),
-    { watch: [selectedAppID] },
+    liveDataOptions([selectedAppID]),
   );
 
   const { data: flowData, refresh: refreshFlow } = useAsyncData(
     "neckdash-flow",
     () => client.dash.flow({ app: detailAppQuery.value }),
-    { watch: [selectedAppID] },
+    liveDataOptions([selectedAppID]),
   );
 
   const { data: catalogData, refresh: refreshCatalog } = useAsyncData(
     "neckdash-catalog",
     () => client.dash.catalog({ app: detailAppQuery.value }),
-    { watch: [selectedAppID] },
+    liveDataOptions([selectedAppID]),
   );
 
   const { data: samplingData, refresh: refreshSampling } = useAsyncData(
     "neckdash-sampling",
     () => client.dash.getSampling(),
+    liveDataOptions(),
   );
 
   const { data: configData, refresh: refreshConfig } = useAsyncData(
@@ -315,7 +329,7 @@ export function useDashboardState() {
     () => detailAppQuery.value
       ? client.dash.config({ app: detailAppQuery.value })
       : Promise.resolve(null),
-    { watch: [selectedAppID] },
+    liveDataOptions([selectedAppID]),
   );
 
   const insights = computed(() => insightsData.value);
@@ -352,26 +366,42 @@ export function useDashboardState() {
     const raw = safeParse(traceDetail.value?.rawJson) as { data?: Array<{ spans?: Array<Record<string, any>>; processes?: Record<string, { serviceName?: string }> }> } | null;
     return raw?.data?.[0];
   });
-  const spans = computed<SpanSummary[]>(() => (jaegerTrace.value?.spans ?? []).map((span) => ({
-    spanId: String(span.spanID || ""),
-    parentSpanId: Array.isArray(span.references) && span.references[0] ? String(span.references[0].spanID || "") : "",
-    spanType: "span",
-    serviceName: String(jaegerTrace.value?.processes?.[String(span.processID || "")]?.serviceName || span.processID || ""),
-    endpointName: String(span.operationName || ""),
-    topicName: "",
-    subscriptionName: "",
-    messageId: "",
-    startedAt: new Date(Number(span.startTime || 0) / 1000).toISOString(),
-    durationMs: Number(span.duration || 0) / 1000,
-    statusCode: 0,
-    isError: Array.isArray(span.tags) && span.tags.some((tag: any) => tag.key === "error" && String(tag.value) === "true"),
-  })));
-  const events = computed<TraceEvent[]>(() => (jaegerTrace.value?.spans ?? []).flatMap((span) => (span.logs ?? []).map((log: any, index: number) => ({
-    spanId: String(span.spanID || ""),
-    eventId: `${span.spanID || "span"}-${index}`,
-    eventType: jaegerLogField(log, "event") || jaegerLogField(log, "log.level") || "log",
-    eventTime: new Date(Number(log.timestamp || 0) / 1000).toISOString(),
-    eventJson: JSON.stringify(log),
+  const spans = computed<SpanSummary[]>(() => (jaegerTrace.value?.spans ?? []).map((span) => {
+    const attributes = jaegerTags(span);
+    const serviceName = String(jaegerTrace.value?.processes?.[String(span.processID || "")]?.serviceName || span.processID || "");
+    const endpointName = attributes["encore.endpoint"] || String(span.operationName || "");
+    const kind = spanKind(attributes, span);
+    return {
+      spanId: String(span.spanID || ""),
+      parentSpanId: Array.isArray(span.references) && span.references[0] ? String(span.references[0].spanID || "") : "",
+      spanType: spanTypeLabel(kind),
+      kind,
+      name: spanDisplayName(attributes, span, endpointName),
+      serviceName,
+      endpointName,
+      topicName: attributes["messaging.destination.name"] || attributes["encore.topic"] || "",
+      subscriptionName: attributes["encore.subscription"] || "",
+      messageId: attributes["messaging.message.id"] || "",
+      startedAt: new Date(Number(span.startTime || 0) / 1000).toISOString(),
+      durationMs: Number(span.duration || 0) / 1000,
+      statusCode: spanStatusCode(attributes),
+      isError: spanIsError(attributes),
+      attributes,
+      logs: spanLogs(span),
+    };
+  }));
+  const selectedSpan = computed(() => spans.value.find((span) => span.spanId === selectedSpanID.value) ?? spans.value[0]);
+  const events = computed<TraceEvent[]>(() => spans.value.flatMap((span) => span.logs.map((log, index) => ({
+    spanId: span.spanId,
+    eventId: `${span.spanId || "span"}-${index}`,
+    eventType: log.level || "log",
+    eventTime: log.timestamp,
+    eventJson: JSON.stringify({
+      timestamp: log.timestamp,
+      level: log.level,
+      message: log.message,
+      fields: log.fields,
+    }),
   }))));
   const catalogServices = computed(() => catalogData.value?.services ?? []);
   const catalogTotals = computed(() => ({
@@ -398,9 +428,26 @@ export function useDashboardState() {
   watch(selectedAppID, () => {
     service.value = "";
     selectedTraceID.value = "";
+    selectedSpanID.value = "";
     selectedEvent.value = null;
     selectedCatalogServiceName.value = "";
     selectedCatalogEndpointKey.value = "";
+  });
+
+  watch(selectedTraceID, () => {
+    selectedSpanID.value = "";
+    selectedEvent.value = null;
+  });
+
+  watchEffect(() => {
+    if (spans.value.length === 0) {
+      selectedSpanID.value = "";
+      return;
+    }
+    if (!spans.value.some((span) => span.spanId === selectedSpanID.value)) {
+      const first = spans.value[0];
+      if (first) selectedSpanID.value = first.spanId;
+    }
   });
 
   watchEffect(() => {
@@ -420,13 +467,6 @@ export function useDashboardState() {
     }
   });
 
-  const stats = computed(() => {
-    const total = traces.value.length;
-    const errors = traces.value.filter((trace) => trace.error).length;
-    const avg = total ? traces.value.reduce((sum, trace) => sum + trace.durationMs, 0) / total : 0;
-    return { total, errors, avg };
-  });
-
   function safeParse(value?: string) {
     if (!value) return null;
     try {
@@ -436,10 +476,89 @@ export function useDashboardState() {
     }
   }
 
-  function jaegerLogField(log: any, key: string) {
+  function jaegerTags(span: any) {
+    const tags = Array.isArray(span?.tags) ? span.tags : [];
+    const result: Record<string, string> = {};
+    for (const tag of tags) {
+      const key = String(tag?.key || "");
+      if (key) result[key] = String(tag?.value ?? "");
+    }
+    return result;
+  }
+
+  function spanKind(attributes: Record<string, string>, span: any) {
+    const synthetic = attributes["encore.synthetic.kind"];
+    if (synthetic === "db") return "db";
+    if (synthetic === "pubsub") return "pubsub";
+    if (synthetic === "cache") return "cache";
+    if (attributes["db.statement"] || attributes["db.system"]) return "db";
+    if (attributes["messaging.system"] || attributes["messaging.destination.name"]) return "pubsub";
+    if (attributes["rpc.system"] || attributes["encore.rpc"]) return "rpc";
+    if (attributes["http.request.method"] || attributes["http.method"]) return "http";
+    const operation = String(span?.operationName || "").toLowerCase();
+    if (operation.includes("query") || operation.includes("sql")) return "db";
+    if (operation.includes("publish") || operation.includes("subscription")) return "pubsub";
+    return "endpoint";
+  }
+
+  function spanTypeLabel(kind: string) {
+    const labels: Record<string, string> = {
+      cache: "cache",
+      db: "db query",
+      endpoint: "request",
+      http: "http",
+      pubsub: "pub/sub",
+      rpc: "api call",
+    };
+    return labels[kind] || "span";
+  }
+
+  function spanDisplayName(attributes: Record<string, string>, span: any, endpointName: string) {
+    if (attributes["db.statement"]) return firstSQLLine(attributes["db.statement"]);
+    if (attributes["messaging.destination.name"]) return attributes["messaging.destination.name"];
+    if (attributes["http.request.method"] && attributes["url.path"]) return `${attributes["http.request.method"]} ${attributes["url.path"]}`;
+    if (attributes["rpc.service"] || attributes["rpc.method"]) {
+      return [attributes["rpc.service"], attributes["rpc.method"]].filter(Boolean).join(".");
+    }
+    return endpointName || String(span?.operationName || "span");
+  }
+
+  function firstSQLLine(statement: string) {
+    return statement.trim().split(/\s+/).slice(0, 8).join(" ");
+  }
+
+  function spanStatusCode(attributes: Record<string, string>) {
+    const code = Number(attributes["http.response.status_code"] || attributes["http.status_code"] || attributes["rpc.grpc.status_code"] || 0);
+    return Number.isFinite(code) ? code : 0;
+  }
+
+  function spanIsError(attributes: Record<string, string>) {
+    if (attributes.error === "true" || attributes["otel.status_code"] === "ERROR" || attributes["status.code"] === "2") return true;
+    const statusCode = spanStatusCode(attributes);
+    return statusCode >= 500;
+  }
+
+  function spanLogs(span: any): SpanLog[] {
+    const logs = Array.isArray(span?.logs) ? span.logs : [];
+    return logs.map((entry: any) => {
+      const fields = jaegerFields(entry);
+      return {
+        timestamp: new Date(Number(entry.timestamp || 0) / 1000).toISOString(),
+        level: fields["log.level"] || fields.level || "",
+        message: fields["log.message"] || fields.message || fields.event || "",
+        fields,
+      };
+    });
+  }
+
+  function jaegerFields(log: any) {
     const fields = Array.isArray(log?.fields) ? log.fields : [];
-    const item = fields.find((field: any) => field.key === key);
-    return item ? String(item.value ?? "") : "";
+    const result: Record<string, string> = {};
+    for (const field of fields) {
+      const key = String(field?.key || "");
+      if (key) result[key] = String(field?.value ?? "");
+    }
+    return result;
   }
 
   function formatDate(value: string) {
@@ -844,13 +963,14 @@ export function useDashboardState() {
     selectedCatalogEndpointKey,
     selectedCatalogService,
     selectedEvent,
+    selectedSpan,
+    selectedSpanID,
     selectedTrace,
     selectedTraceID,
     service,
     services,
     spans,
     stackVariables,
-    stats,
     tabs,
     traceHours,
     traces,

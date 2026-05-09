@@ -32,7 +32,7 @@ const traceId = ref("");
 const hours = ref(1);
 const autoRefresh = ref(false);
 
-const { data: logsData, pending, refresh } = await useAsyncData(
+const { data: logsData, pending, refresh } = useAsyncData(
   "neckdash-logs",
   () => client.dash.listLogs({
     query: query.value,
@@ -43,7 +43,11 @@ const { data: logsData, pending, refresh } = await useAsyncData(
     hours: hours.value,
     limit: 200,
   }),
-  { watch: [() => props.appId, query, service, level, traceId, hours] },
+  {
+    watch: [() => props.appId, query, service, level, traceId, hours],
+    dedupe: "cancel",
+    getCachedData: () => undefined,
+  },
 );
 
 const logs = computed(() => logsData.value?.logs ?? []);

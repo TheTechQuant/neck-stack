@@ -30,9 +30,7 @@ const {
   events,
   flowEdges,
   flowNodes,
-  formatDate,
   formatMetricValue,
-  formatMs,
   formatPercent,
   formatRate,
   frontendVarName,
@@ -64,13 +62,14 @@ const {
   selectedCatalogEndpointKey,
   selectedCatalogService,
   selectedEvent,
+  selectedSpan,
+  selectedSpanID,
   selectedTrace,
   selectedTraceID,
   service,
   services,
   spans,
   stackVariables,
-  stats,
   tabs,
   traceHours,
   traces,
@@ -146,25 +145,6 @@ const {
               {{ app.name || app.id }}
             </option>
           </select>
-          <select v-if="activeTab === 'Traces'" v-model="service" class="input">
-            <option value="">All services</option>
-            <option v-for="item in services" :key="item" :value="item">
-              {{ item }}
-            </option>
-          </select>
-          <select v-if="activeTab === 'Traces'" v-model.number="traceHours" class="input compact">
-            <option :value="1">Last hour</option>
-            <option :value="8">Last 8 hours</option>
-            <option :value="24">Last 24 hours</option>
-            <option :value="72">Last 3 days</option>
-            <option :value="168">Last 7 days</option>
-          </select>
-          <input
-            v-if="activeTab === 'Traces'"
-            v-model="search"
-            class="input"
-            placeholder="Trace, service, endpoint"
-          >
           <button class="button" type="button" @click="refreshActive">
             Refresh
           </button>
@@ -302,96 +282,21 @@ const {
       </section>
 
       <section v-else-if="activeTab === 'Traces'">
-        <div class="grid">
-          <div class="stat">
-            <span>Recent traces</span>
-            <strong>{{ stats.total }}</strong>
-          </div>
-          <div class="stat">
-            <span>Errors</span>
-            <strong>{{ stats.errors }}</strong>
-          </div>
-          <div class="stat">
-            <span>Average latency</span>
-            <strong>{{ formatMs(stats.avg) }}</strong>
-          </div>
-          <div class="stat">
-            <span>Selected events</span>
-            <strong>{{ events.length }}</strong>
-          </div>
-        </div>
-
-        <div class="split">
-          <div class="panel">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>Trace</th>
-                  <th>Root</th>
-                  <th>Latency</th>
-                  <th>Status</th>
-                  <th>Seen</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="trace in traces"
-                  :key="trace.traceId"
-                  :class="{ selected: selectedTrace?.traceId === trace.traceId }"
-                  @click="selectedTraceID = trace.traceId; selectedEvent = null"
-                >
-                  <td class="mono">{{ trace.traceId }}</td>
-                  <td>
-                    <strong>{{ trace.service || "unknown" }}</strong>
-                    <div class="muted">{{ trace.endpoint }}</div>
-                  </td>
-                  <td>{{ formatMs(trace.durationMs) }}</td>
-                  <td>
-                    <span class="pill" :class="{ error: trace.error }">
-                      {{ trace.error ? "error" : trace.statusCode || "ok" }}
-                    </span>
-                  </td>
-                  <td>{{ formatDate(trace.startedAt) }}</td>
-                </tr>
-              </tbody>
-            </table>
-            <div v-if="traces.length === 0" class="empty">
-              No traces captured yet.
-            </div>
-          </div>
-
-          <div class="panel detail">
-            <h3>{{ selectedTrace?.service || "Trace" }} {{ selectedTrace?.endpoint }}</h3>
-            <div class="list">
-              <div v-for="span in spans" :key="span.spanId" class="list-item">
-                <div>
-                  <span class="pill">{{ span.spanType }}</span>
-                  <strong>{{ span.serviceName || span.topicName || "unknown" }}</strong>
-                  <span class="muted">{{ span.endpointName || span.subscriptionName }}</span>
-                </div>
-                <div class="muted">
-                  {{ formatMs(span.durationMs) }} · {{ span.spanId }}
-                </div>
-              </div>
-            </div>
-
-            <h3 style="margin-top: 18px;">Events</h3>
-            <div class="list">
-              <button
-                v-for="event in events"
-                :key="`${event.spanId}-${event.eventId}`"
-                class="list-item"
-                type="button"
-                @click="selectedEvent = event"
-              >
-                <span class="pill">{{ event.eventType }}</span>
-                <span class="muted">{{ formatDate(event.eventTime) }}</span>
-                <span class="mono">{{ event.spanId }}</span>
-              </button>
-            </div>
-            <pre v-if="selectedEvent" class="event-json mono">{{ prettyJSON(selectedEvent.eventJson) }}</pre>
-          </div>
-        </div>
+        <TraceExplorer
+          v-model:selected-event="selectedEvent"
+          v-model:selected-span-id="selectedSpanID"
+          v-model:selected-trace-id="selectedTraceID"
+          v-model:service="service"
+          v-model:search="search"
+          v-model:trace-hours="traceHours"
+          :events="events"
+          :selected-span="selectedSpan"
+          :selected-trace="selectedTrace"
+          :services="services"
+          :spans="spans"
+          :traces="traces"
+          @refresh="refreshActive"
+        />
       </section>
 
       <section v-else-if="activeTab === 'Logs'">

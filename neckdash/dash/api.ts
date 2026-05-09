@@ -3,6 +3,7 @@ import { buildCatalog } from "./catalog";
 import { discoverApps, selectedCatalog } from "./apps";
 import { readConfig, updateConfig } from "./configApi";
 import { buildFlow } from "./flow";
+import { serveLiveEvents } from "./live";
 import { listLogEntries, tailLogs } from "./logs";
 import {
   insightRateSeries,
@@ -64,7 +65,7 @@ export const listTraces = api(
   { expose: true, method: "GET", path: "/traces" },
   async (params: TraceListParams): Promise<TraceListResponse> => {
     const appID = String(params.app || "").trim();
-    const limit = boundedInt(params.limit, 50, 100);
+    const limit = boundedInt(params.limit, 100, 500);
     const hours = boundedInt(params.hours, 1, 168);
     const search = String(params.search || "");
     if (looksLikeTraceID(search)) {
@@ -211,13 +212,7 @@ export const updateConfigEndpoint = api(
 // Events streams dashboard ticks so the UI can refresh active data through the generated client.
 export const events = api.streamOut<LiveEvent>(
   { expose: true, path: "/events" },
-  async (stream) => {
-    await stream.send({ type: "ready", time: new Date().toISOString() });
-    for (;;) {
-      await sleep(3000);
-      await stream.send({ type: "tick", time: new Date().toISOString() });
-    }
-  },
+  serveLiveEvents,
 );
 
 // TailLogs proxies VictoriaLogs live tailing for CLI and UI clients.
@@ -335,8 +330,4 @@ function traceServiceFanoutLimit() {
 function boundedInt(value: unknown, fallback: number, max: number) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 && parsed <= max ? Math.floor(parsed) : fallback;
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

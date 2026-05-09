@@ -1,6 +1,6 @@
 export default defineNuxtConfig({
   devtools: { enabled: true },
-  ssr: true,
+  ssr: false,
   runtimeConfig: {
     neckdashApiInternalBaseUrl: process.env.NUXT_NECKDASH_API_INTERNAL_BASE_URL || "http://localhost:8080",
     public: {
@@ -18,6 +18,13 @@ export default defineNuxtConfig({
       ],
     },
   },
-  css: ["~/assets/css/main.css"],
+  css: ["~/assets/css/main.css", "~/assets/css/traces.css"],
+  routeRules: {
+    "/**": {
+      headers: {
+        "cache-control": "no-store",
+      },
+    },
+  },
   compatibilityDate: "2026-05-08",
 });

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { env, stringValue, valueOr, victoriaTracesOTLPURL } from "./config";
+import { publishLiveEvent } from "./live";
 import { extractLogEntries, postVictoriaLogs } from "./logs";
 import { parseEncoreEvents, parseTimeAnchor } from "./traceParser";
 import type { OTLPAttribute, OTLPEvent, OTLPRequest, SpanBuilder, SpanEvent, TraceEvent, TraceRequestMeta } from "./traceTypes";
@@ -33,6 +34,7 @@ export async function handleTrace(req: IncomingMessage, res: ServerResponse) {
     const { otlp, builders } = convertToOTLP(meta, events);
     await postOTLP(otlp);
     await postVictoriaLogs(extractLogEntries(meta, events, builders));
+    publishLiveEvent("trace");
     res.writeHead(202, { "content-type": "application/json" });
     res.end(JSON.stringify({ ok: true }));
   } catch (error) {
