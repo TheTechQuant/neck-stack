@@ -413,7 +413,7 @@ services:
       SIGNOZ_OTLP_TRACES_URL: \${SIGNOZ_OTLP_TRACES_URL:-http://signoz-otel-collector:4318/v1/traces}
       SIGNOZ_OTLP_LOGS_URL: \${SIGNOZ_OTLP_LOGS_URL:-http://signoz-otel-collector:4318/v1/logs}
       SIGNOZ_OTLP_METRICS_URL: \${SIGNOZ_OTLP_METRICS_URL:-http://signoz-otel-collector:4318/v1/metrics}
-      SIGNOZ_BASE_URL: \${SIGNOZ_BASE_URL:-/__neck_dash/signoz}
+      SIGNOZ_BASE_URL: \${SIGNOZ_BASE_URL:-/__signoz}
       NECKDASH_KOMODO_URL: \${NECKDASH_KOMODO_URL:-}
       NECKDASH_KOMODO_API_KEY: \${NECKDASH_KOMODO_API_KEY:-}
       NECKDASH_KOMODO_API_SECRET: \${NECKDASH_KOMODO_API_SECRET:-}
@@ -434,7 +434,7 @@ services:
     environment:
       NUXT_APP_BASE_URL: \${NUXT_APP_BASE_URL:-/__neck_dash/}
       NUXT_PUBLIC_NECKDASH_API_BASE_URL: \${NUXT_PUBLIC_NECKDASH_API_BASE_URL:-/__neck_dash/api}
-      NUXT_PUBLIC_SIGNOZ_BASE_URL: \${NUXT_PUBLIC_SIGNOZ_BASE_URL:-/__neck_dash/signoz}
+      NUXT_PUBLIC_SIGNOZ_BASE_URL: \${NUXT_PUBLIC_SIGNOZ_BASE_URL:-/__signoz}
       NUXT_NECKDASH_API_INTERNAL_BASE_URL: \${NUXT_NECKDASH_API_INTERNAL_BASE_URL:-http://neckdash:8080}
       PORT: 3000
       HOST: 0.0.0.0
@@ -452,7 +452,7 @@ services:
     restart: unless-stopped
     environment:
       SIGNOZ_ALERTMANAGER_PROVIDER: signoz
-      SIGNOZ_GLOBAL_EXTERNAL__URL: \${SIGNOZ_EXTERNAL_URL:-https://${domain}/__neck_dash/signoz}
+      SIGNOZ_GLOBAL_EXTERNAL__URL: \${SIGNOZ_EXTERNAL_URL:-https://${domain}/__signoz}
       SIGNOZ_TELEMETRYSTORE_CLICKHOUSE_DSN: tcp://clickhouse:9000
       SIGNOZ_SQLSTORE_SQLITE_PATH: /var/lib/signoz/signoz.db
       SIGNOZ_TOKENIZER_JWT_SECRET: \${SIGNOZ_TOKENIZER_JWT_SECRET:-${defaultSignozJWTSecret}}
@@ -641,10 +641,10 @@ function neckDashKomodoEnvLines() {
     "NECKDASH_REQUIRE_TRACE_AUTH = true",
     "NUXT_APP_BASE_URL = /__neck_dash/",
     "NUXT_PUBLIC_NECKDASH_API_BASE_URL = /__neck_dash/api",
-    "NUXT_PUBLIC_SIGNOZ_BASE_URL = /__neck_dash/signoz",
+    "NUXT_PUBLIC_SIGNOZ_BASE_URL = /__signoz",
     "NUXT_NECKDASH_API_INTERNAL_BASE_URL = http://neckdash:8080",
-    "SIGNOZ_BASE_URL = /__neck_dash/signoz",
-    `SIGNOZ_EXTERNAL_URL = https://${domain}/__neck_dash/signoz`,
+    "SIGNOZ_BASE_URL = /__signoz",
+    `SIGNOZ_EXTERNAL_URL = https://${domain}/__signoz`,
     "SIGNOZ_OTLP_TRACES_URL = http://signoz-otel-collector:4318/v1/traces",
     "SIGNOZ_OTLP_LOGS_URL = http://signoz-otel-collector:4318/v1/logs",
     "SIGNOZ_OTLP_METRICS_URL = http://signoz-otel-collector:4318/v1/metrics",

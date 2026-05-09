@@ -17,7 +17,7 @@ const refreshNonce = ref(0);
 const current = computed(() => dashRoute.state.value);
 const selectedApp = computed(() => apps.value.find((app) => app.id === current.value.appId));
 const selectedLabel = computed(() => selectedApp.value?.name || selectedApp.value?.id || "All apps");
-const signozBaseUrl = computed(() => String(config.public.signozBaseUrl || "/__neck_dash/signoz").replace(/\/+$/g, ""));
+const signozBaseUrl = computed(() => String(config.public.signozBaseUrl || "/__signoz").replace(/\/+$/g, ""));
 
 const icons: Record<DashboardView, any> = {
   overview: LayoutDashboard,

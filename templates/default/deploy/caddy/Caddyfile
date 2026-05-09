@@ -2,7 +2,7 @@
 	encode zstd gzip
 
 	@neckDashProtected {
-		path /__neck_dash /__neck_dash/*
+		path /__neck_dash /__neck_dash/* /__signoz /__signoz/*
 		not path /__neck_dash/api/trace
 	}
 	basic_auth @neckDashProtected {
@@ -12,8 +12,8 @@
 	@neckDashRoot path /__neck_dash
 	redir @neckDashRoot /__neck_dash/ 308
 
-	@signozRoot path /__neck_dash/signoz
-	redir @signozRoot /__neck_dash/signoz/ 308
+	@signozRoot path /__signoz
+	redir @signozRoot /__signoz/ 308
 
 	handle /__neck_dash/api/trace {
 		reverse_proxy neckdash:8080 {
@@ -26,7 +26,7 @@
 		reverse_proxy neckdash:8080
 	}
 
-	handle /__neck_dash/signoz/* {
+	handle /__signoz/* {
 		reverse_proxy signoz:8080
 	}
 

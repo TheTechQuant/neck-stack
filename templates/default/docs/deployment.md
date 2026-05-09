@@ -169,7 +169,7 @@ Set the output as `NECK_DASH_PASSWORD_HASH`.
 
 ## NECK Dash
 
-The shared server ingress exposes `https://DOMAIN/__neck_dash`, then the app's internal Caddy protects the UI, `/__neck_dash/api`, and `/__neck_dash/signoz` with HTTP Basic Auth. The only exception is `/__neck_dash/api/trace`, which must remain reachable by backend trace exporters and is still validated by Encore trace auth:
+The shared server ingress exposes `https://DOMAIN/__neck_dash` for NECK Dash and `https://DOMAIN/__signoz` for the real SigNoz UI. The app's internal Caddy protects both paths with HTTP Basic Auth. The only exception is `/__neck_dash/api/trace`, which must remain reachable by backend trace exporters and is still validated by Encore trace auth:
 
 - `NECK_DASH_USER`, default `admin`.
 - `NECK_DASH_PASSWORD_HASH`, generated at scaffold time.
@@ -178,7 +178,7 @@ The generated Encore infra config enables the official Prometheus remote-write m
 
 NECK Dash also ships a trace ingestion adapter that validates Encore trace signatures, converts Encore trace streams to OpenTelemetry JSON, and forwards them to SigNoz. Production backends post to `http://neckdash:8080/trace` on the private `neck-ingress` network. The public `/__neck_dash/api/trace` route remains available for single-domain ingestion; app Caddy copies `X-Encore-Auth` into `X-Neckdash-Trace-Auth` and strips the reserved header before proxying to NECK Dash. Structured `encore.dev/log` events in those trace streams are emitted once as OTLP logs with `encore.app_id`, `trace_id`, and `span_id` preserved for correlation in SigNoz.
 
-The dashboard discovers app catalogs by scanning `NECKDASH_APPS_ROOT` for `*/deploy/encore/meta.json` and matching `docs/openapi.json` beside each app. It exposes an app picker, persists the selected view locally, and scopes Flow, Service Catalog, OpenAPI, and Settings views to the selected app. Trace, log, metric, dashboard, and alert exploration is handled by SigNoz under `/__neck_dash/signoz`.
+The dashboard discovers app catalogs by scanning `NECKDASH_APPS_ROOT` for `*/deploy/encore/meta.json` and matching `docs/openapi.json` beside each app. It exposes an app picker, persists the selected view locally, and scopes Flow, Service Catalog, OpenAPI, and Settings views to the selected app. Trace, log, metric, dashboard, and alert exploration is handled by SigNoz under `/__signoz`.
 
 The Settings tab is enabled when `NECKDASH_KOMODO_URL`, `NECKDASH_KOMODO_API_KEY`, and `NECKDASH_KOMODO_API_SECRET` are present on the shared stack. It stores backend `secret(...)` values as app-prefixed Komodo secret variables, writes frontend `NUXT_PUBLIC_` variables into the app stack environment, and can redeploy the app stack after a save.
 
