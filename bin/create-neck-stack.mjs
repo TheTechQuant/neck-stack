@@ -555,12 +555,12 @@ async function main() {
       })`pnpm komodo:setup`;
     }
   } else if (autoSetupKomodo) {
-    warn("Skipping Komodo automatic setup because --no-install was provided. Run `pnpm install:all && pnpm infra:encore && pnpm komodo:setup` inside the app.");
+    warn("Skipping Komodo automatic setup because --no-install was provided. Run `pnpm deps && pnpm neck infra && pnpm komodo:setup` inside the app.");
   }
 
   success(`Created ${appSlug} in ${target}`);
   console.log(`\n${chalk.bold("Next")}`);
-  if (!shouldInstall) console.log(`  ${chalk.cyan("pnpm dlx zx scripts/install.mjs")}`);
+  if (!shouldInstall) console.log(`  ${chalk.cyan("pnpm dlx zx scripts/neck.mjs install")}`);
   console.log(`  ${chalk.cyan("pnpm check")}`);
   console.log(`  ${chalk.cyan("pnpm dev")}`);
   outro("Operator settings and SigNoz root credentials were written to .env.");

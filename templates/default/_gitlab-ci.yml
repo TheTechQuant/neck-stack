@@ -32,8 +32,8 @@ validate:
     - curl -fsSL https://encore.dev/install.sh -o /tmp/install-encore.sh
     - bash /tmp/install-encore.sh
     - export PATH="$HOME/.encore/bin:$PATH"
-    - pnpm dlx zx scripts/install.mjs --frozen-lockfile
-    - pnpm exec zx scripts/encore-ci-auth.mjs
+    - pnpm dlx zx scripts/neck.mjs install --frozen-lockfile
+    - pnpm neck ci-auth
     - pnpm check
 
 .docker_job:
@@ -46,7 +46,7 @@ validate:
     - apt-get install -y --no-install-recommends ca-certificates curl docker.io
     - corepack enable
     - pnpm config set store-dir .pnpm-store
-    - pnpm dlx zx scripts/install.mjs --frozen-lockfile
+    - pnpm dlx zx scripts/neck.mjs install --frozen-lockfile
     - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
 
 build-images:
@@ -56,8 +56,8 @@ build-images:
     - curl -fsSL https://encore.dev/install.sh -o /tmp/install-encore.sh
     - bash /tmp/install-encore.sh
     - export PATH="$HOME/.encore/bin:$PATH"
-    - pnpm exec zx scripts/encore-ci-auth.mjs
-    - pnpm infra:encore
+    - pnpm neck ci-auth
+    - pnpm neck infra
     - export HAS_SQL="$(node -e 'const fs=require("fs"); const infra=JSON.parse(fs.readFileSync("deploy/encore/infra.prod.json","utf8")); console.log(Array.isArray(infra.sql_servers)&&infra.sql_servers.some((s)=>Object.keys(s.databases||{}).length>0)?"true":"false")')"
     - |
       case "${PROD_PLATFORM:-linux/amd64}" in
@@ -81,10 +81,10 @@ build-images:
       if { [ "$PROD_ARCH" = "arm64" ] && [ "$RUNNER_ARCH" != "aarch64" ] && [ "$RUNNER_ARCH" != "arm64" ]; } || { [ "$PROD_ARCH" = "amd64" ] && [ "$RUNNER_ARCH" != "x86_64" ] && [ "$RUNNER_ARCH" != "amd64" ]; }; then
         docker run --privileged --rm tonistiigi/binfmt --install "$PROD_ARCH" || echo "QEMU/binfmt setup skipped; use a native ${PROD_PLATFORM} runner or enable privileged Docker for cross-arch builds."
       fi
-    - pnpm api:gen
-    - pnpm docker:backend
-    - docker build --platform "$PROD_PLATFORM" -f frontend/Dockerfile --build-arg NUXT_PUBLIC_API_BASE_URL="/api" --build-arg NUXT_API_INTERNAL_BASE_URL="http://backend:8080" -t "$FRONTEND_IMAGE" .
-    - if [ "$HAS_SQL" = "true" ]; then docker build --platform "$PROD_PLATFORM" -f deploy/migrations/Dockerfile -t "$MIGRATIONS_IMAGE" .; else echo "No SQLDatabase resources; skipping migration image."; fi
+    - pnpm neck api
+    - pnpm neck docker backend
+    - pnpm neck docker frontend
+    - if [ "$HAS_SQL" = "true" ]; then pnpm neck docker migrations; else echo "No SQLDatabase resources; skipping migration image."; fi
     - docker push "$BACKEND_IMAGE"
     - docker push "$FRONTEND_IMAGE"
     - if [ "$HAS_SQL" = "true" ]; then docker push "$MIGRATIONS_IMAGE"; fi

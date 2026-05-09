@@ -34,9 +34,9 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
       - name: Install dependencies
-        run: pnpm dlx zx scripts/install.mjs --frozen-lockfile
+        run: pnpm dlx zx scripts/neck.mjs install --frozen-lockfile
       - name: Configure Encore auth
-        run: pnpm exec zx scripts/encore-ci-auth.mjs
+        run: pnpm neck ci-auth
       - name: Check
         run: pnpm check
 
@@ -64,9 +64,9 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
       - name: Install dependencies
-        run: pnpm dlx zx scripts/install.mjs --frozen-lockfile
+        run: pnpm dlx zx scripts/neck.mjs install --frozen-lockfile
       - name: Configure Encore auth
-        run: pnpm exec zx scripts/encore-ci-auth.mjs
+        run: pnpm neck ci-auth
       - name: Login to registry
         env:
           REGISTRY_HOST: ${{ vars.REGISTRY_HOST || 'ghcr.io' }}
@@ -96,27 +96,21 @@ jobs:
               ;;
           esac
       - name: Generate Encore infra
-        run: pnpm infra:encore
+        run: pnpm neck infra
       - name: Detect SQL resources
         id: sql
         run: |
           has_sql="$(node -e 'const fs=require("fs"); const infra=JSON.parse(fs.readFileSync("deploy/encore/infra.prod.json","utf8")); console.log(Array.isArray(infra.sql_servers)&&infra.sql_servers.some((s)=>Object.keys(s.databases||{}).length>0)?"true":"false")')"
           echo "has_sql=${has_sql}" >> "$GITHUB_OUTPUT"
       - name: Generate API artifacts
-        run: pnpm api:gen
+        run: pnpm neck api
       - name: Build backend image
-        run: pnpm docker:backend
+        run: pnpm neck docker backend
       - name: Build frontend image
-        run: |
-          docker build \
-            --platform "${{ steps.platform.outputs.platform }}" \
-            -f frontend/Dockerfile \
-            --build-arg NUXT_PUBLIC_API_BASE_URL="/api" \
-            --build-arg NUXT_API_INTERNAL_BASE_URL="http://backend:8080" \
-            -t "$FRONTEND_IMAGE" .
+        run: pnpm neck docker frontend
       - name: Build migrations image
         if: steps.sql.outputs.has_sql == 'true'
-        run: docker build --platform "${{ steps.platform.outputs.platform }}" -f deploy/migrations/Dockerfile -t "$MIGRATIONS_IMAGE" .
+        run: pnpm neck docker migrations
       - name: Push images
         run: |
           docker push "$BACKEND_IMAGE"

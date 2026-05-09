@@ -11,7 +11,7 @@ For a normal GitLab deploy, this is the whole path:
 1. Install and validate the generated app:
 
    ```bash
-   pnpm dlx zx scripts/install.mjs
+   pnpm dlx zx scripts/neck.mjs install
    pnpm check
    ```
 
@@ -53,7 +53,7 @@ The server must be able to pull your container images. For private registries, c
 ## Flow
 
 1. CI runs `pnpm check`.
-2. CI runs `pnpm infra:encore` and reads Encore metadata.
+2. CI runs `pnpm neck infra` and reads Encore metadata.
 3. CI builds and pushes backend and frontend images.
 4. CI builds and pushes the migration image when SQL databases exist.
 5. Komodo's scheduled `neck-auto-update` procedure runs `GlobalAutoUpdate`.
@@ -101,7 +101,7 @@ docker run -d --name neck-ingress-caddy --restart unless-stopped \
 Import `deploy/neckdash/resources.toml` into Komodo once per server. Then import each app's `deploy/komodo/resources.toml`. Regenerate them after backend infrastructure changes:
 
 ```bash
-pnpm infra:encore
+pnpm neck infra
 ```
 
 If you have a Komodo API key and secret, use the generated setup script instead of importing by hand:
@@ -110,7 +110,7 @@ If you have a Komodo API key and secret, use the generated setup script instead 
 pnpm komodo:setup
 ```
 
-It uses generated defaults for `KOMODO_URL` and `KOMODO_SERVER`, then asks for `KOMODO_API_KEY` and `KOMODO_API_SECRET` the first time and saves them to `.env`. Override `KOMODO_URL` or `KOMODO_SERVER` only if the Komodo target changes after scaffolding. By default it leaves an existing shared `neckdash-sync` unchanged so one app cannot overwrite another app's shared observability setup, but it still merges this app's trace auth key into the shared `neckdash` stack. Use `pnpm komodo:setup -- --update-shared` only when you intentionally want to update the shared observability Resource Sync.
+It uses generated defaults for `KOMODO_URL` and `KOMODO_SERVER`, then asks for `KOMODO_API_KEY` and `KOMODO_API_SECRET` the first time and saves them to `.env`. Override `KOMODO_URL` or `KOMODO_SERVER` only if the Komodo target changes after scaffolding. By default it leaves an existing shared `neckdash-sync` unchanged so one app cannot overwrite another app's shared observability setup, but it still merges this app's trace auth key into the shared `neckdash` stack. Use `pnpm neck komodo:setup --update-shared` only when you intentionally want to update the shared observability Resource Sync.
 
 The generated stack uses `deploy/compose.yaml`, enables Komodo stack image polling, and redeploys the whole app stack when `:prod` images change:
 
@@ -166,7 +166,7 @@ The generated Encore infra config enables the official Prometheus remote-write m
 
 NECK Dash also ships a trace ingestion adapter that validates Encore trace signatures, converts Encore trace streams to OpenTelemetry JSON, and forwards them to SigNoz. Production backends post to `http://neckdash:8080/trace` on the private `neck-ingress` network. The public `/__neck_dash/api/trace` route remains available for single-domain ingestion; app Caddy copies `X-Encore-Auth` into `X-Neckdash-Trace-Auth` and strips the reserved header before proxying to NECK Dash. Structured `encore.dev/log` events in those trace streams are emitted once as OTLP logs with `encore.app_id`, `trace_id`, and `span_id` preserved for correlation in SigNoz.
 
-Production containers are generated with Komodo-safe Encore metadata and `K_SERVICE`, `K_REVISION`, and `K_POD` labels, so the backend should not run through Encore's `CLOUD_LOCAL` metadata fallback. If `CLOUD_LOCAL` appears in production logs, regenerate config with `pnpm infra:encore` and redeploy the backend image plus `deploy/encore/runtime.prod.pb`.
+Production containers are generated with Komodo-safe Encore metadata and `K_SERVICE`, `K_REVISION`, and `K_POD` labels, so the backend should not run through Encore's `CLOUD_LOCAL` metadata fallback. If `CLOUD_LOCAL` appears in production logs, regenerate config with `pnpm neck infra` and redeploy the backend image plus `deploy/encore/runtime.prod.pb`.
 
 For high-volume apps, SigNoz and ClickHouse own trace/log/metric querying. NECK Dash only handles authenticated trace/log ingestion and metric forwarding.
 
@@ -188,8 +188,8 @@ Retention and storage tuning should be handled through SigNoz/ClickHouse configu
 Use `linux/amd64` for normal x86 servers or `linux/arm64` for ARM servers:
 
 ```bash
-PROD_PLATFORM=linux/arm64 pnpm docker:backend
-PROD_PLATFORM=linux/arm64 pnpm docker:frontend
+PROD_PLATFORM=linux/arm64 pnpm neck docker backend
+PROD_PLATFORM=linux/arm64 pnpm neck docker frontend
 ```
 
 CI accepts the same values, plus short aliases like `amd64` and `arm64`. Backend builds pass the platform through Encore's `--os` and `--arch` flags; frontend and migration images use Docker `--platform`.

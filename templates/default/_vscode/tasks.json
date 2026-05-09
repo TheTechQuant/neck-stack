@@ -4,7 +4,7 @@
     {
       "label": "encore: test backend",
       "type": "shell",
-      "command": "pnpm test:backend",
+      "command": "pnpm test",
       "group": "test",
       "problemMatcher": [],
       "presentation": {
@@ -16,7 +16,7 @@
     {
       "label": "encore: debug backend (break)",
       "type": "shell",
-      "command": "pnpm debug:backend:break",
+      "command": "pnpm neck debug break",
       "isBackground": true,
       "problemMatcher": {
         "owner": "encore",
@@ -38,7 +38,7 @@
     {
       "label": "encore: debug backend",
       "type": "shell",
-      "command": "pnpm debug:backend",
+      "command": "pnpm neck debug",
       "isBackground": true,
       "problemMatcher": {
         "owner": "encore",

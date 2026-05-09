@@ -165,7 +165,7 @@ async function executeServerTerminal({ server, command, init }, { onLine, onFini
 
 async function readFile(path) {
   if (!(await fs.pathExists(path))) {
-    throw new Error(`Missing ${path}. Run pnpm infra:encore first.`);
+    throw new Error(`Missing ${path}. Run pnpm neck infra first.`);
   }
   return fs.readFile(path, "utf8");
 }

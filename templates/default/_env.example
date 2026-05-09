@@ -14,4 +14,4 @@ SIGNOZ_USER_ROOT_ORG_NAME=NECK
 # Optional runtime overrides. Only add these after introducing matching Encore resources.
 # POSTGRES_PASSWORD=replace-generated-default
 # REDIS_PASSWORD=replace-generated-default
-# Add Encore secret env vars here when `pnpm infra:encore` reports them.
+# Add Encore secret env vars here when `pnpm neck infra` reports them.

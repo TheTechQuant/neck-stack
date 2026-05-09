@@ -3,7 +3,7 @@
     "label": "encore: test backend",
     "command": "pnpm",
     "args": [
-      "test:backend"
+      "test"
     ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "use_new_terminal": false,
@@ -14,7 +14,9 @@
     "label": "encore: debug backend (break)",
     "command": "pnpm",
     "args": [
-      "debug:backend:break"
+      "neck",
+      "debug",
+      "break"
     ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "use_new_terminal": true,
@@ -25,7 +27,8 @@
     "label": "encore: debug backend",
     "command": "pnpm",
     "args": [
-      "debug:backend"
+      "neck",
+      "debug"
     ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "use_new_terminal": true,

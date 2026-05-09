@@ -73,7 +73,7 @@ The production observability entrypoint is the actual SigNoz app at `https://DOM
 
 High-volume installs are treated as the normal case: NECK Dash avoids custom hot-path query fanout and leaves trace, log, and metric exploration to SigNoz/ClickHouse. The only per-app runtime sidecar is the small OTel collector bridge required to label Encore Prometheus remote-write metrics before they enter the shared SigNoz collector.
 
-Generated deployment config has one source of truth: `pnpm infra:encore` writes `deploy/encore/infra.prod.json`, `deploy/encore/runtime.prod.pb`, `deploy/encore/meta.json`, `deploy/compose.yaml`, `deploy/komodo/resources.toml`, and the shared `deploy/neckdash/*` files from `encore debug meta -f json`. There is no source-scan fallback; invalid Encore metadata should fail loudly.
+Generated deployment config has one source of truth: `pnpm neck infra` writes `deploy/encore/infra.prod.json`, `deploy/encore/runtime.prod.pb`, `deploy/encore/meta.json`, `deploy/compose.yaml`, `deploy/komodo/resources.toml`, and the shared `deploy/neckdash/*` files from `encore debug meta -f json`. There is no source-scan fallback; invalid Encore metadata should fail loudly.
 
 CI stays focused on validation and image publishing. Komodo owns runtime rollout: the generated stack enables image polling and auto-update, while the shared `neck-auto-update` procedure runs `GlobalAutoUpdate` every five minutes. SQL migrations run from stack `pre_deploy`, so they still happen after images are built and before containers restart.
 
@@ -84,10 +84,11 @@ The NECK Dash adapter image is published from this repo as `ghcr.io/thetechquant
 Inside a generated app:
 
 ```bash
-pnpm dlx zx scripts/install.mjs
+pnpm dlx zx scripts/neck.mjs install
 pnpm check
 pnpm dev
 pnpm build
+pnpm neck help
 ```
 
 `pnpm dev` regenerates the Encore client and OpenAPI spec first, then keeps watching backend source so frontend HMR sees backend API changes through the generated client.
