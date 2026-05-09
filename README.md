@@ -76,7 +76,7 @@ High-volume installs are treated as the normal case: Insights and metrics use ag
 
 Generated deployment config has one source of truth: `pnpm infra:encore` writes `deploy/encore/infra.prod.json`, `deploy/encore/meta.json`, `deploy/compose.yaml`, `deploy/komodo/resources.toml`, and the shared `deploy/neckdash/*` files from `encore debug meta -f json`. There is no source-scan fallback; invalid Encore metadata should fail loudly.
 
-CI deploys can be configured with a single public Komodo Core URL. The generated deploy script derives deterministic GitLab/GitHub listener URLs from the app id and sends the Komodo webhook secret header, while still allowing explicit webhook URL overrides for custom setups.
+CI stays focused on validation and image publishing. Komodo owns runtime rollout: the generated stack enables image polling and auto-update, while the shared `neck-auto-update` procedure runs `GlobalAutoUpdate` every five minutes. SQL migrations run from stack `pre_deploy`, so they still happen after images are built and before containers restart.
 
 NECK Dash images are published from this repo as `ghcr.io/thetechquant/neck-stack/neckdash:latest` and `ghcr.io/thetechquant/neck-stack/neckdash-ui:latest`.
 
@@ -99,11 +99,10 @@ pnpm deploy:komodo
 Short path:
 
 1. Push the generated repo to GitLab/GitHub.
-2. Run `pnpm komodo:setup` if you have Komodo API credentials, or import `deploy/neckdash/resources.toml` once per server and `deploy/komodo/resources.toml` for the app manually.
-3. Set `KOMODO_WEBHOOK_SECRET` in CI.
-4. Run the `main` pipeline.
+2. Run the `main` pipeline so `:prod` images exist.
+3. Run `pnpm komodo:setup` if you have Komodo API credentials, or import `deploy/neckdash/resources.toml` once per server and `deploy/komodo/resources.toml` for the app manually.
 
-CI builds images, runs migrations when the app has SQL databases, and triggers Komodo deploy. The app is served at `https://DOMAIN`; NECK Dash is at `https://DOMAIN/__neck_dash`.
+CI builds images and pushes stable `:prod` tags. Komodo deploys the first stack from the imported resources and then polls for future image updates. The app is served at `https://DOMAIN`; NECK Dash is at `https://DOMAIN/__neck_dash`.
 
 ## Created By
 

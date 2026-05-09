@@ -22,30 +22,24 @@ For a normal GitLab deploy, this is the whole path:
    git push -u origin main
    ```
 
-3. Set up Komodo resources. If you created the app with `--komodo-api-key`, `--komodo-api-secret`, and `--komodo-auto-setup` after the target repo was already reachable, the initializer already did this. Otherwise run it from the app repo when you have credentials:
-
-   ```bash
-   pnpm komodo:setup
-   ```
-
-   This creates the shared `neck-ingress` network/Caddy proxy, creates the shared NECK Dash Resource Sync if it does not exist, creates or updates this app's Resource Sync, and runs the syncs.
-
-4. If you do not use API setup, do the same steps manually in Komodo: import `deploy/neckdash/resources.toml` once per server, then import this app's `deploy/komodo/resources.toml`.
-
-5. In GitLab CI/CD variables, set:
-
-   ```text
-   KOMODO_WEBHOOK_SECRET=<komodo webhook secret>
-   ```
-
-   Optional variables:
+3. Optional CI variables:
 
    ```text
    ENCORE_CLOUD_AUTH_KEY=<only if this app is linked to Encore Cloud>
    PROD_PLATFORM=linux/arm64
    ```
 
-6. Run the `main` pipeline. CI builds images, pushes them, runs migrations when needed, then triggers Komodo deploy.
+4. Run the `main` pipeline. CI validates the app, builds images, and pushes `backend:prod`, `frontend:prod`, and `migrations:prod` when SQL databases exist.
+
+5. Set up Komodo resources after the first production images exist. If you created the app with `--komodo-api-key`, `--komodo-api-secret`, and `--komodo-auto-setup` after the target repo was already reachable, the initializer already did this. Otherwise run it from the app repo when you have credentials:
+
+   ```bash
+   pnpm komodo:setup
+   ```
+
+   This creates the shared `neck-ingress` network/Caddy proxy, creates the shared NECK Dash Resource Sync if it does not exist, creates or updates this app's Resource Sync, runs the syncs, and installs the shared `neck-auto-update` procedure.
+
+6. If you do not use API setup, do the same steps manually in Komodo: import `deploy/neckdash/resources.toml` once per server, then import this app's `deploy/komodo/resources.toml`.
 
 7. Open:
 
@@ -62,10 +56,10 @@ The server must be able to pull your container images. For private registries, c
 2. CI runs `pnpm infra:encore` and reads Encore metadata.
 3. CI builds and pushes backend and frontend images.
 4. CI builds and pushes the migration image when SQL databases exist.
-5. CI calls the Komodo migration webhook when SQL databases exist.
-6. CI calls the Komodo stack deploy webhook.
+5. Komodo's scheduled `neck-auto-update` procedure runs `GlobalAutoUpdate`.
+6. Komodo sees changed `:prod` image digests and redeploys stacks with `auto_update = true`.
 
-Migrations run after image build and before container restart.
+When SQL databases exist, migrations run from the stack `pre_deploy` command after images are built and before containers restart.
 
 ## Configuration Files
 
@@ -117,9 +111,15 @@ pnpm komodo:setup
 
 It uses generated defaults for `KOMODO_URL` and `KOMODO_SERVER`, then asks for `KOMODO_API_KEY` and `KOMODO_API_SECRET` the first time and saves them to `.env`. Override `KOMODO_URL` or `KOMODO_SERVER` only if the Komodo target changes after scaffolding. By default it leaves an existing shared `neckdash-sync` unchanged so one app cannot overwrite another app's shared dashboard setup. Use `pnpm komodo:setup -- --update-shared` only when you intentionally want to update the shared NECK Dash Resource Sync.
 
-The generated stack uses `deploy/compose.yaml`. One-shot services are excluded from normal stack deploy:
+The generated stack uses `deploy/compose.yaml`, enables Komodo stack image polling, and redeploys the whole app stack when `:prod` images change:
 
-- `migrations`, only when SQL databases exist.
+- `auto_pull = true`
+- `auto_update = true`
+- `auto_update_all_services = true`
+
+One-shot services are excluded from normal stack status checks:
+
+- `migrations`, only when SQL databases exist and run through stack `pre_deploy`.
 - `cron-runner`, only when Encore CronJobs exist.
 
 CronJobs become scheduled Komodo actions that run `docker compose run --rm cron-runner ...` against the private backend service.
@@ -130,7 +130,7 @@ The shared server Caddy receives public traffic on `DOMAIN` and forwards it to t
 
 Services are provisioned only when used:
 
-- No `SQLDatabase`: no Postgres, no migration image, no migration action.
+- No `SQLDatabase`: no Postgres, no migration image, no migration `pre_deploy`.
 - No `CacheCluster`: no Redis.
 - No Pub/Sub topics/subscriptions: no NSQ.
 - No `CronJob`: no cron runner actions.
@@ -209,19 +209,8 @@ Cross-architecture builds require either a native runner for the target architec
 
 Set these variables:
 
-- `ENCORE_CLOUD_AUTH_KEY`, required when the app id is linked to Encore Cloud, because `encore test` fetches development secrets.
+- `ENCORE_CLOUD_AUTH_KEY`, optional. When absent, CI runs linked-app tests in local-only mode.
 - `PROD_PLATFORM`, optional. Defaults to `__PROD_PLATFORM__`; set to `linux/arm64` for ARM production hosts.
-- `KOMODO_URL`, optional when scaffolded with a Komodo Core URL. If set, CI derives listener URLs from the app id.
-- `KOMODO_WEBHOOK_SECRET`, recommended. Set it to Komodo Core's global webhook secret so listener calls are authenticated.
-- `KOMODO_DEPLOY_WEBHOOK_URL`, optional override for deploy.
-- `KOMODO_MIGRATE_WEBHOOK_URL`, optional override, needed only if you do not use `KOMODO_URL` and SQL databases exist.
-
-If `KOMODO_URL` was supplied to `create-neck-stack`, the generated CI file already contains it and derives:
-
-- `https://KOMODO_URL/listener/gitlab/stack/__APP_ID__/deploy`
-- `https://KOMODO_URL/listener/gitlab/action/__APP_ID__-migrate/main`
-
-CI providers still need `KOMODO_WEBHOOK_SECRET` configured as a protected secret/variable unless you intentionally run unauthenticated Komodo webhooks.
 
 GitLab uses its built-in registry by default:
 
@@ -239,18 +228,14 @@ Set these repository variables or secrets:
 - `REGISTRY_HOST`, optional. Defaults to `ghcr.io`.
 - `REGISTRY_USERNAME`, optional. Defaults to the GitHub actor.
 - `REGISTRY_PASSWORD`, optional. Defaults to `GITHUB_TOKEN`.
-- `ENCORE_CLOUD_AUTH_KEY`, required when the app id is linked to Encore Cloud, because `encore test` fetches development secrets.
+- `ENCORE_CLOUD_AUTH_KEY`, optional. When absent, CI runs linked-app tests in local-only mode.
 - `PROD_PLATFORM`, optional. Defaults to `__PROD_PLATFORM__`; set to `linux/arm64` for ARM production hosts.
-- `KOMODO_URL`, optional repository variable. If set, CI derives listener URLs from the app id.
-- `KOMODO_WEBHOOK_SECRET`, recommended repository secret.
-- `KOMODO_DEPLOY_WEBHOOK_URL`, optional override for deploy.
-- `KOMODO_MIGRATE_WEBHOOK_URL`, optional override, needed only if you do not use `KOMODO_URL` and SQL databases exist.
 
 The workflow is generated at `.github/workflows/ci.yml`.
 
 ## Manual Deploy
 
-After images are pushed and Komodo webhooks are configured:
+Normal deploys do not need manual commands: CI pushes `:prod` images and Komodo polling redeploys the stack. To force an immediate deploy through the Komodo API:
 
 ```bash
 pnpm deploy:komodo
@@ -259,8 +244,6 @@ pnpm deploy:komodo
 Useful modes:
 
 ```bash
-pnpm deploy:komodo -- --migrate-only
-pnpm deploy:komodo -- --deploy-only
-pnpm deploy:komodo -- --skip-migrations
+pnpm deploy:komodo -- --force
 pnpm deploy:komodo -- --dry-run
 ```

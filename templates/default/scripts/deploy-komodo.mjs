@@ -1,6 +1,5 @@
 #!/usr/bin/env zx
-import { $, fs } from "zx";
-import { createHmac } from "node:crypto";
+import { $ } from "zx";
 import { parse } from "@bomb.sh/args";
 import chalk from "chalk";
 import { loadDotEnv } from "./lib/env.mjs";
@@ -12,10 +11,10 @@ console.log(`\n${chalk.bold.cyan("Deploy with Komodo")}`);
 
 const args = parse(process.argv.slice(3).filter((arg) => arg !== "--"), {
   alias: { h: "help" },
-  boolean: ["deploy-only", "dry-run", "help", "migrate-only", "skip-infra", "skip-migrations"],
+  boolean: ["dry-run", "force", "help", "skip-infra"],
 });
 
-const allowedArgs = new Set(["_", "deploy-only", "dry-run", "help", "migrate-only", "skip-infra", "skip-migrations"]);
+const allowedArgs = new Set(["_", "dry-run", "force", "help", "skip-infra"]);
 const unknownArgs = Object.keys(args).filter((key) => !allowedArgs.has(key));
 if (unknownArgs.length > 0) {
   throw new Error(`Unknown option${unknownArgs.length === 1 ? "" : "s"}: ${unknownArgs.map((key) => `--${key}`).join(", ")}`);
@@ -27,35 +26,28 @@ Usage:
   pnpm deploy:komodo [options]
 
 Options:
-  --skip-infra         Do not regenerate deploy/encore/infra.prod.json
-  --skip-migrations    Skip the migration webhook
-  --migrate-only       Run only the migration webhook
-  --deploy-only        Run only the stack deploy webhook
-  --dry-run            Print webhook calls without sending them
-  -h, --help           Show help
+  --skip-infra    Do not regenerate deploy/encore/infra.prod.json
+  --force         Run DeployStack instead of DeployStackIfChanged
+  --dry-run       Print the Komodo API action without sending it
+  -h, --help      Show help
 `.trim());
   process.exit(0);
 }
 
 const skipInfra = args["skip-infra"] === true;
-const skipMigrations = args["skip-migrations"] === true;
-const migrateOnly = args["migrate-only"] === true;
-const deployOnly = args["deploy-only"] === true;
+const forceDeploy = args.force === true;
 const dryRun = args["dry-run"] === true;
-
-if (migrateOnly && deployOnly) {
-  throw new Error("Use either --migrate-only or --deploy-only, not both.");
-}
 
 if (!skipInfra) {
   console.log(chalk.dim("Generating Encore infrastructure config"));
   await $`pnpm infra:encore`;
 }
 
-function webhookEnv(name) {
-  const value = process.env[name] || derivedWebhookUrl(name);
-  if (!value && dryRun) return `<${name}>`;
-  if (!value) throw new Error(`Missing ${name}. Set it to the Komodo webhook URL or set KOMODO_URL so it can be derived.`);
+function requiredEnv(name) {
+  const value = String(process.env[name] || "").trim();
+  if (!value) {
+    throw new Error(`Missing ${name}. Run pnpm komodo:setup once or set it in .env.`);
+  }
   return value;
 }
 
@@ -63,105 +55,52 @@ function normalizedBaseUrl(input) {
   return String(input || "").trim().replace(/\/+$/g, "");
 }
 
-function webhookProvider() {
-  const value = String(process.env.KOMODO_WEBHOOK_PROVIDER || "gitlab").toLowerCase();
-  return value.includes("github") ? "github" : "gitlab";
+const appId = String(process.env.APP_ID || "__APP_ID__").trim();
+const action = forceDeploy ? "DeployStack" : "DeployStackIfChanged";
+
+if (dryRun) {
+  console.log(chalk.yellow(`[dry-run] would execute ${action} for stack ${appId}`));
+  process.exit(0);
 }
 
-function appId() {
-  return process.env.APP_ID || "__APP_ID__";
-}
+const komodoUrl = normalizedBaseUrl(requiredEnv("KOMODO_URL"));
+const komodoApiKey = requiredEnv("KOMODO_API_KEY");
+const komodoApiSecret = requiredEnv("KOMODO_API_SECRET");
 
-function derivedWebhookUrl(name) {
-  const baseUrl = normalizedBaseUrl(process.env.KOMODO_URL || "__KOMODO_URL__");
-  if (!baseUrl) return "";
-
-  const provider = webhookProvider();
-  if (name === "KOMODO_DEPLOY_WEBHOOK_URL") {
-    return `${baseUrl}/listener/${provider}/stack/${encodeURIComponent(appId())}/deploy`;
-  }
-  if (name === "KOMODO_MIGRATE_WEBHOOK_URL") {
-    return `${baseUrl}/listener/${provider}/action/${encodeURIComponent(`${appId()}-migrate`)}/main`;
-  }
-  return "";
-}
-
-async function hasGeneratedSQLDatabases() {
-  try {
-    const raw = await fs.readFile("deploy/encore/infra.prod.json", "utf8");
-    const infra = JSON.parse(raw);
-    return Array.isArray(infra.sql_servers) && infra.sql_servers.some((server) => Object.keys(server.databases || {}).length > 0);
-  } catch {
-    return false;
-  }
-}
-
-function webhookPayload() {
-  const branch = process.env.CI_COMMIT_BRANCH || process.env.GITHUB_REF_NAME || "main";
-  const sha = process.env.CI_COMMIT_SHA || process.env.GITHUB_SHA || "";
-  return JSON.stringify({
-    object_kind: "push",
-    ref: `refs/heads/${branch}`,
-    checkout_sha: sha,
-    after: sha,
-  });
-}
-
-function webhookHeaders(body) {
-  const secret = process.env.KOMODO_WEBHOOK_SECRET || "";
-  const provider = webhookProvider();
-  const headers = {
-    "content-type": "application/json",
-  };
-
-  if (provider === "github") {
-    headers["x-github-event"] = "push";
-    if (secret) {
-      headers["x-hub-signature-256"] = `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
-    }
-  } else {
-    headers["x-gitlab-event"] = "Push Hook";
-    if (secret) headers["x-gitlab-token"] = secret;
-  }
-
-  return headers;
-}
-
-async function postWebhook(name, url) {
-  const body = webhookPayload();
-  if (dryRun) {
-    console.log(chalk.yellow(`[dry-run] would call ${name}: ${url}`));
-    return;
-  }
-
-  console.log(chalk.dim(`Calling ${name}`));
-  const previousVerbose = $.verbose;
-  $.verbose = false;
-  const response = await fetch(url, {
+async function komodoRequest(section, type, params) {
+  const response = await fetch(`${komodoUrl}/${section}/${type}`, {
     method: "POST",
-    headers: webhookHeaders(body),
-    body,
-  }).finally(() => {
-    $.verbose = previousVerbose;
+    body: JSON.stringify(params),
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": komodoApiKey,
+      "x-api-secret": komodoApiSecret,
+    },
   });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    throw new Error(`${name} failed: HTTP ${response.status}${body ? `\n${body}` : ""}`);
+    throw new Error(`Komodo ${section}/${type} failed: HTTP ${response.status}${body ? `\n${body}` : ""}`);
+  }
+  return response.json();
+}
+
+const komodoRead = (type, params) => komodoRequest("read", type, params);
+const komodoExecute = (type, params) => komodoRequest("execute", type, params);
+
+async function pollUpdate(id) {
+  if (!id) return { status: "Complete" };
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const update = await komodoRead("GetUpdate", { id });
+    if (update.status === "Complete" || update.status === "Err") return update;
   }
 }
 
-const hasSQLDatabases = await hasGeneratedSQLDatabases();
-
-if (!deployOnly && !skipMigrations && hasSQLDatabases) {
-  await postWebhook("Komodo migration action", webhookEnv("KOMODO_MIGRATE_WEBHOOK_URL"));
-} else if (!deployOnly && !skipMigrations && !hasSQLDatabases) {
-  console.log(chalk.dim("Skipping migrations because no SQLDatabase resources were detected."));
-} else if (!deployOnly && skipMigrations) {
-  console.log(chalk.yellow("Skipping migrations because --skip-migrations was provided."));
+console.log(chalk.dim(`Executing ${action} for stack ${appId}`));
+const update = await komodoExecute(action, { stack: appId });
+const done = await pollUpdate(update?._id?.$oid);
+if (done.status === "Err") {
+  throw new Error(`Komodo deploy failed: ${done.data?.message || "unknown error"}`);
 }
 
-if (!migrateOnly) {
-  await postWebhook("Komodo stack deploy", webhookEnv("KOMODO_DEPLOY_WEBHOOK_URL"));
-}
-
-console.log(`\n${chalk.green("✓ Komodo deploy flow complete")}`);
+console.log(`\n${chalk.green("✓ Komodo deploy complete")}`);

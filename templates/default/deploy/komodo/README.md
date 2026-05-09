@@ -10,14 +10,12 @@ The app stack expects a shared server ingress named `neck-ingress`. Run one Cadd
 
 NECK Dash is a separate shared stack. Import `deploy/neckdash/resources.toml` once per server; do not import one dashboard stack for every app. It runs the published dashboard images plus VictoriaMetrics, VictoriaTraces, and VictoriaLogs. This app writes metrics to the shared VictoriaMetrics service with an `app_id` label and routes `/__neck_dash` to the shared dashboard over `neck-ingress`.
 
-When SQL databases exist, the migration action is intentionally separate from stack deploy. With `KOMODO_URL` set, CI derives the generated `__APP_ID__-migrate` action webhook and the stack deploy webhook automatically. Override `KOMODO_MIGRATE_WEBHOOK_URL` or `KOMODO_DEPLOY_WEBHOOK_URL` only if you renamed resources or use a custom listener path. Without SQL databases, CI skips the migration step.
+When SQL databases exist, migrations run through the stack `pre_deploy` command. That keeps the deploy path single: CI pushes images, Komodo detects changed `:prod` image digests, then migrations run before the stack restarts.
 
 When used, Postgres is not published on the host. Compose uses generated internal password defaults unless you set `POSTGRES_PASSWORD` or `REDIS_PASSWORD` in the Komodo stack environment or the server `.env` before first boot.
 
 The stack does not include MinIO/S3. Keep file storage external unless you intentionally want to operate object storage yourself.
 
-The generated GitLab CI can use `KOMODO_URL` plus `KOMODO_WEBHOOK_SECRET` directly. It only needs explicit `KOMODO_DEPLOY_WEBHOOK_URL` / `KOMODO_MIGRATE_WEBHOOK_URL` values when you do not want deterministic listener URLs.
-
-GitHub Actions uses the same deploy script and expects equivalent repository secrets. See `docs/deployment.md`.
+The generated GitLab CI and GitHub Actions workflows do not need Komodo listener webhooks. They only build and push images; the shared `neck-auto-update` procedure handles polling-based redeploys. See `docs/deployment.md`.
 
 The internal Caddy service uses a single public host from `DOMAIN`: Nuxt at `/`, Encore at `/api`, and shared NECK Dash at `/__neck_dash` with its API at `/__neck_dash/api`. Only `/__neck_dash/api/trace` bypasses dashboard Basic Auth so backend trace exporters can post there; NECK Dash still validates Encore trace auth. Add this app's `app_id=trace_key` pair to the shared stack's `NECKDASH_TRACE_AUTH_KEYS` when it differs from the first app. Override `NECK_DASH_PASSWORD_HASH` before deploy if you do not want to use the scaffolded first password.

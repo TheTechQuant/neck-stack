@@ -64,7 +64,7 @@ pnpm check
 git push -u origin main
 ```
 
-After the repo is pushed, `pnpm komodo:setup` can create the shared `neck-ingress` network/Caddy proxy, create the shared NECK Dash Resource Sync if missing, and create/update this app's Resource Sync. It asks for `KOMODO_API_KEY` and `KOMODO_API_SECRET` the first time and saves them to `.env`. Without API credentials, import `deploy/neckdash/resources.toml` once per server and this app's `deploy/komodo/resources.toml` manually. Set `KOMODO_WEBHOOK_SECRET` in CI. Encore Cloud credentials are optional: CI runs tests locally when they are absent, or uses `ENCORE_CLOUD_AUTH_KEY`, `ENCORE_AUTH_CONFIG`, or `ENCORE_AUTH_TOKEN` when you want Cloud-linked development secrets.
+After the first `main` pipeline has pushed production images, `pnpm komodo:setup` can create the shared `neck-ingress` network/Caddy proxy, create the shared NECK Dash Resource Sync if missing, and create/update this app's Resource Sync. It asks for `KOMODO_API_KEY` and `KOMODO_API_SECRET` the first time and saves them to `.env`. Without API credentials, import `deploy/neckdash/resources.toml` once per server and this app's `deploy/komodo/resources.toml` manually. Encore Cloud credentials are optional: CI runs tests locally when they are absent, or uses `ENCORE_CLOUD_AUTH_KEY`, `ENCORE_AUTH_CONFIG`, or `ENCORE_AUTH_TOKEN` when you want Cloud-linked development secrets.
 
 Production is driven by Encore metadata:
 
@@ -84,7 +84,7 @@ Production is driven by Encore metadata:
 
 `pnpm infra:encore` is the only source of generated production config. It reads `encore debug meta -f json` and writes `deploy/encore/infra.prod.json`, `deploy/encore/meta.json`, `deploy/compose.yaml`, `deploy/komodo/resources.toml`, and `deploy/neckdash/*`; there is no source-scan fallback or separate static example infra file to keep in sync.
 
-GitLab and GitHub CI both run validate, image build, migration, and Komodo deploy stages. They generate the frontend client/OpenAPI before frontend builds and trigger migrations after images are built but before the Komodo stack deploy webhook. If `KOMODO_URL` is configured, CI derives Komodo listener URLs from the app id; keep `KOMODO_WEBHOOK_SECRET` in CI secrets so those calls are authenticated.
+GitLab and GitHub CI both validate the app, generate the frontend client/OpenAPI before frontend builds, and push stable `:prod` image tags. Komodo owns runtime rollout through stack image polling and `auto_update`; SQL migrations run from stack `pre_deploy` before each redeploy when SQL databases exist.
 
 Set `PROD_PLATFORM=linux/arm64` to target ARM production hosts. The scaffolded default is written to Komodo resources and CI; backend images use Encore `--os/--arch`, while frontend and migration images use Docker `--platform`.
 

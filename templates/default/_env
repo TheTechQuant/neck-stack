@@ -1,13 +1,12 @@
 # Operator-editable settings.
 DOMAIN=__DOMAIN__
 PROD_PLATFORM=__PROD_PLATFORM__
+KOMODO_URL=__KOMODO_URL__
+KOMODO_SERVER=__KOMODO_SERVER__
 
 # Local secrets.
 NECK_DASH_PASSWORD=__NECK_DASH_PASSWORD_DEFAULT__
 NECK_DASH_PASSWORD_HASH='__NECK_DASH_PASSWORD_HASH_DEFAULT__'
-
-# Used only by pnpm deploy:komodo for authenticated Komodo listeners.
-KOMODO_WEBHOOK_SECRET=__KOMODO_WEBHOOK_SECRET__
 
 # pnpm komodo:setup asks for KOMODO_API_KEY / KOMODO_API_SECRET once and saves them here.
 

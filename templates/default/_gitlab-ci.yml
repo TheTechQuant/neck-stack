@@ -1,8 +1,6 @@
 stages:
   - validate
   - build
-  - migrate
-  - deploy
 
 variables:
   DOCKER_DRIVER: overlay2
@@ -13,8 +11,6 @@ variables:
   MIGRATIONS_IMAGE: "$CI_REGISTRY_IMAGE/migrations:$CI_COMMIT_SHA"
   PROD_PLATFORM: "__PROD_PLATFORM__"
   APP_ID: "__APP_ID__"
-  KOMODO_URL: "__KOMODO_URL__"
-  KOMODO_WEBHOOK_PROVIDER: "__KOMODO_WEBHOOK_PROVIDER__"
 
 default:
   image: node:24-bookworm
@@ -108,28 +104,3 @@ build-images:
       - deploy/neckdash/resources.toml
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
-
-migrate-prod:
-  image: node:24-bookworm
-  stage: migrate
-  needs:
-    - job: build-images
-      artifacts: true
-  script:
-    - pnpm dlx zx scripts/install.mjs --frozen-lockfile
-    - pnpm deploy:komodo -- --skip-infra --migrate-only
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main" && $KOMODO_WEBHOOK_SECRET'
-
-deploy-komodo:
-  stage: deploy
-  image: node:24-bookworm
-  needs:
-    - job: build-images
-      artifacts: true
-    - job: migrate-prod
-  script:
-    - pnpm dlx zx scripts/install.mjs --frozen-lockfile
-    - pnpm deploy:komodo -- --skip-infra --deploy-only
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main" && $KOMODO_WEBHOOK_SECRET'

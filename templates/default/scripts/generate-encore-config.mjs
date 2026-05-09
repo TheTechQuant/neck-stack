@@ -602,20 +602,14 @@ failure_alert = true
 file_contents = '''${fileContents}'''`;
 }
 
-function renderMigrationAction() {
-  const command = `cd ${runDirectory} && docker compose -f deploy/compose.yaml pull migrations && docker compose -f deploy/compose.yaml run --rm migrations`;
-  const fileContents = `const command = ${JSON.stringify(command)};\nlet exitCode = 0;\n\nawait komodo.execute_server_terminal({\n  server: ${JSON.stringify(komodoServer)},\n  command,\n  init: { command: \"bash\" },\n}, {\n  onLine: (line) => console.log(line),\n  onFinish: (code) => { exitCode = code; },\n});\n\nif (exitCode !== 0) {\n  throw new Error(${JSON.stringify("Encore migrations failed with exit code ")} + exitCode);\n}\n`;
-
+function renderMigrationPreDeploy() {
+  if (!hasPostgres()) return "";
+  const command = "docker compose -f deploy/compose.yaml pull migrations && docker compose -f deploy/compose.yaml run --rm migrations";
   return `
-[[action]]
-name = ${tomlString(`${appId}-migrate`)}
-description = ${tomlString("Runs Encore SQL migrations with golang-migrate before deploying the stack")}
-tags = ["neck", "migrations", ${tomlString(appId)}]
-
-[action.config]
-schedule_enabled = false
-failure_alert = true
-file_contents = '''${fileContents}'''`;
+[stack.config.pre_deploy]
+path = ${tomlString(runDirectory)}
+command = ${tomlString(command)}
+`;
 }
 
 function renderKomodoResources() {
@@ -631,11 +625,14 @@ function renderKomodoResources() {
 name = ${tomlString(appId)}
 description = ${tomlString(`NECK production stack for __APP_NAME__`)}
 tags = ["neck", "production"]
-deploy = false
+deploy = true
 
 [stack.config]
 server = ${tomlString(komodoServer)}
 project_name = ${tomlString(appId)}
+auto_pull = true
+auto_update = true
+auto_update_all_services = true
 run_directory = ${tomlString(runDirectory)}
 file_paths = ["deploy/compose.yaml"]
 git_provider = ${tomlString(gitProvider)}
@@ -643,10 +640,10 @@ git_account = ${tomlString(gitAccount)}
 repo = ${tomlString(gitlabProject)}
 branch = "main"
 ${ignoreServicesLine}environment = """\n${komodoEnvLines()}\n"""
+${renderMigrationPreDeploy()}
 `;
 
   const actions = [
-    hasPostgres() ? renderMigrationAction() : "",
     ...resources.crons.map(renderCronAction),
   ].filter(Boolean);
 
@@ -671,6 +668,26 @@ git_account = ${tomlString(gitAccount)}
 repo = ${tomlString(gitlabProject)}
 branch = "main"
 environment = """\n${neckDashKomodoEnvLines()}\n"""
+
+[[procedure]]
+name = "neck-auto-update"
+description = "Polls NECK stacks for new production images and redeploys stacks with auto_update enabled"
+tags = ["neck", "system"]
+
+[procedure.config]
+schedule_format = "English"
+schedule = "Every 5 minutes"
+schedule_enabled = true
+schedule_timezone = "UTC"
+schedule_alert = false
+failure_alert = true
+
+[[procedure.config.stage]]
+name = "Poll stack images"
+enabled = true
+executions = [
+  { execution.type = "GlobalAutoUpdate", execution.params = {}, enabled = true },
+]
 `;
 }
 

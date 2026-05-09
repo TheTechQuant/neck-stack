@@ -3,11 +3,14 @@
 name = "__APP_ID__"
 description = "NECK production stack for __APP_NAME__"
 tags = ["neck", "production"]
-deploy = false
+deploy = true
 
 [stack.config]
 server = "__KOMODO_SERVER__"
 project_name = "__APP_ID__"
+auto_pull = true
+auto_update = true
+auto_update_all_services = true
 run_directory = "__RUN_DIRECTORY__"
 file_paths = ["deploy/compose.yaml"]
 git_provider = "__GIT_PROVIDER__"

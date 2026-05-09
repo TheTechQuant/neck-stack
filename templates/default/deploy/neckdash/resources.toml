@@ -39,3 +39,23 @@ VICTORIA_TRACES_IMAGE = victoriametrics/victoria-traces:latest
 VICTORIA_METRICS_IMAGE = victoriametrics/victoria-metrics:latest
 VICTORIA_LOGS_IMAGE = victoriametrics/victoria-logs:latest
 """
+
+[[procedure]]
+name = "neck-auto-update"
+description = "Polls NECK stacks for new production images and redeploys stacks with auto_update enabled"
+tags = ["neck", "system"]
+
+[procedure.config]
+schedule_format = "English"
+schedule = "Every 5 minutes"
+schedule_enabled = true
+schedule_timezone = "UTC"
+schedule_alert = false
+failure_alert = true
+
+[[procedure.config.stage]]
+name = "Poll stack images"
+enabled = true
+executions = [
+  { execution.type = "GlobalAutoUpdate", execution.params = {}, enabled = true },
+]
